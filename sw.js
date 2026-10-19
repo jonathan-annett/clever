@@ -1,6 +1,6 @@
 // clever service worker: network first, cache fallback, so updates arrive
 // when online and the app still opens at a venue with no signal.
-const CACHE = 'clever-v3';
+const CACHE = 'clever-v4';
 const SHELL = ['./', 'guide.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -23,6 +23,8 @@ self.addEventListener('fetch', e => {
   const sameOrigin = url.origin === self.location.origin;
   const fonts = /fonts\.(googleapis|gstatic)\.com$/.test(url.hostname);
   if (!sameOrigin && !fonts) return;
+  // leave audio/video alone: players use range requests, and partial (206) responses can't be cached
+  if (req.headers.has('range') || req.destination === 'audio' || req.destination === 'video') return;
 
   e.respondWith((async () => {
     const cache = await caches.open(CACHE);

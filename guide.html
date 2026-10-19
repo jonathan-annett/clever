@@ -55,6 +55,10 @@ main{max-width:70ch;min-width:0}
 .hero h1{font:600 clamp(22px,3.4vw,28px)/1.25 var(--ui);margin:14px 0 10px;text-wrap:balance}
 .hero p{color:var(--dim);margin:0;font-size:17px}
 
+.listen{margin-top:22px;background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:4px;padding:12px 16px}
+.listen .h{font:600 13px var(--ui);letter-spacing:.08em;text-transform:uppercase;color:var(--accent);display:block;margin-bottom:2px}
+.listen p{font-size:15px;margin:0 0 10px}
+.listen audio{width:100%;display:block;color-scheme:dark}
 section{padding-top:16px;margin-top:40px;border-top:1px solid var(--line)}
 h2{font:700 26px/1.2 var(--ui);margin:6px 0 14px;text-wrap:balance}
 h2 .n{font:500 13px var(--mono);color:var(--accent);display:block;letter-spacing:.08em;margin-bottom:4px}
@@ -138,6 +142,11 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
       <span class="wm">cle<em>v</em>er</span>
       <h1>A plain-language guide to measuring sound with clever</h1>
       <p>No prior experience with Smaart, REW or any other analyzer needed. Each tool is explained by the question it answers, then how to read it.</p>
+      <div class="listen">
+        <span class="h">Prefer to listen?</span>
+        <p>An audio overview of this guide, generated with NotebookLM.</p>
+        <audio id="podcast" controls preload="none" src="guide.m4a">Your browser can't play this audio. <a href="guide.m4a">Download the episode</a>.</audio>
+      </div>
     </div>
 
     <section id="what">
