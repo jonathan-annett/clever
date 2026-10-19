@@ -3,7 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Coherence Analyzer</title>
+<title>clever</title>
+<meta name="description" content="clever by audiogeek: a real-time analyzer for live sound. RTA, transfer function, delay finder and SPL meter in the browser, with UMIK-1 calibration and Stream Deck control.">
+<link rel="canonical" href="https://audiogeek.sophtwhere.com/clever/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="audiogeek">
+<meta property="og:title" content="clever">
+<meta property="og:description" content="Real-time analyzer, transfer function, delay finder and SPL meter for live sound. Runs in the browser.">
+<meta property="og:url" content="https://audiogeek.sophtwhere.com/clever/">
+<meta property="og:image" content="https://audiogeek.sophtwhere.com/clever/icon-512.png">
+<meta name="twitter:card" content="summary">
+<meta name="application-name" content="clever">
 <meta name="theme-color" content="#141a21">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png">
@@ -32,8 +42,17 @@ button,select,input{font:inherit;color:inherit}
 
 /* top strip */
 .top{display:flex;align-items:center;gap:14px;padding:8px max(14px,env(safe-area-inset-right,0px)) 8px max(14px,env(safe-area-inset-left,0px));background:var(--panel);border-bottom:1px solid var(--line);flex-wrap:wrap}
-.brand{font-weight:700;letter-spacing:.08em;text-transform:uppercase;font-size:13px;color:var(--dim);display:flex;align-items:center;gap:8px}
-.brand i{width:10px;height:10px;border-radius:50%;background:var(--faint);display:inline-block}
+.brand{display:flex;align-items:center;gap:9px;color:var(--fg)}
+.brand i{width:10px;height:10px;border-radius:50%;background:var(--faint);display:inline-block;flex:none}
+.brand span{display:flex;flex-direction:column;line-height:1}
+.wm{font-family:var(--ui);font-weight:700;letter-spacing:-.02em}
+.wm em{font-style:normal;color:var(--accent)}
+.brand .wm{font-size:22px}
+.brand small{font:500 9px var(--mono);color:var(--faint);letter-spacing:.14em;text-transform:uppercase;margin-top:3px}
+.splash{display:grid;gap:8px;justify-items:center;text-align:center;padding:0 16px}
+.splash .wm{font-size:clamp(44px,9vw,84px);line-height:.9;color:var(--fg)}
+.splash .tag{color:var(--dim);font-size:15px;letter-spacing:.02em}
+.splash .hint{color:var(--faint);font:12px var(--mono);letter-spacing:.12em;text-transform:uppercase;margin-top:10px}
 .brand.on i{background:var(--ok);box-shadow:0 0 8px var(--ok)}
 .run{background:var(--accent);color:var(--accent-ink);border:0;border-radius:4px;padding:7px 16px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;cursor:pointer}
 .run.on{background:var(--raise);color:var(--fg);box-shadow:inset 0 0 0 1px var(--grid2)}
@@ -135,7 +154,8 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
   .phead .ro{margin-left:0;width:100%}
 }
 @media (max-width:520px){
-  .brand span{display:none}
+  .brand small{display:none}
+  .brand .wm{font-size:19px}
   .spl .v{font-size:26px}
 }
 @media (prefers-reduced-motion:reduce){#toast,.side{transition:none}}
@@ -145,7 +165,7 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
 <div class="app">
   <header class="top">
     <button class="chipbtn sidebtn" id="sideToggle" aria-label="Settings">☰</button>
-    <div class="brand" id="brand"><i></i><span>Coherence</span></div>
+    <div class="brand" id="brand" title="Status light: green while the analyzer is running"><i></i><span><b class="wm">cle<em>v</em>er</b><small>audiogeek</small></span></div>
     <button class="run" id="runBtn" title="Space">Start</button>
     <div class="meters">
       <div class="meter" id="mtMeas"><span>MEAS</span><span class="bar"><b></b></span><span>–∞</span></div>
@@ -290,6 +310,14 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
           <p class="note">Uses WebHID, so Chrome or Edge only. Quit the Elgato Stream Deck app first or it may hold the device. Supports XL (both versions), MK.2 and Original V2.</p>
         </div>
       </details>
+      <details>
+        <summary>About</summary>
+        <div class="body">
+          <div class="wm" style="font-size:28px">cle<em>v</em>er</div>
+          <p class="note">A real-time analyzer for live sound, part of <a href="https://audiogeek.sophtwhere.com/" target="_blank" rel="noopener">audiogeek</a>. Source on <a href="https://github.com/jonathan-annett/clever" target="_blank" rel="noopener">GitHub</a>, MIT licence.</p>
+          <p class="note">Keys: Space start/stop · G generator · D find delay · C capture · R reset averages · L layout · 1 / 2 / 3 top view</p>
+        </div>
+      </details>
     </aside>
 
     <main class="main">
@@ -299,7 +327,7 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
           <span id="irInfo"></span><button class="btn" id="irApply" hidden style="padding:2px 8px;font-size:12px">Add to delay</button>
           <span class="ro" id="roTop"></span>
         </div>
-        <div class="plotwrap"><canvas class="plot" id="cvTop"></canvas><div class="idle" id="idle1">Press Start to open the mic</div></div>
+        <div class="plotwrap"><canvas class="plot" id="cvTop"></canvas><div class="idle" id="idle1"><div class="splash"><div class="wm">cle<em>v</em>er</div><div class="tag">RTA · transfer function · delay finder · SPL</div><div class="hint">Press Start to open the mic</div></div></div></div>
       </section>
       <section class="pane tf">
         <div class="phead"><span class="title">Phase</span><span class="ro" id="roPhase"></span></div>

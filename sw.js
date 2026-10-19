@@ -1,6 +1,6 @@
-// Coherence Analyzer service worker: network first, cache fallback, so updates arrive
+// clever service worker: network first, cache fallback, so updates arrive
 // when online and the app still opens at a venue with no signal.
-const CACHE = 'coherence-v1';
+const CACHE = 'clever-v2';
 const SHELL = ['./', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {

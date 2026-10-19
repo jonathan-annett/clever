@@ -1,5 +1,7 @@
 # clever
 
+Part of [audiogeek](https://audiogeek.sophtwhere.com/). Live at **https://audiogeek.sophtwhere.com/clever/**
+
 A browser-based real-time audio analyzer for live sound: RTA, spectrograph, dual-channel transfer function (magnitude, phase, coherence), impulse response, delay finder and SPL meter. It runs entirely in the browser, with no build step and no dependencies.
 
 ## Features
