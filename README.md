@@ -15,6 +15,10 @@ A browser-based real-time audio analyzer for live sound: RTA, spectrograph, dual
 - Stream Deck control over WebHID (XL, MK.2, Original V2), plus an on-screen button console
 - Installable as a home-screen app with offline support
 
+## User guide
+
+New to measurement tools? The [user guide](https://audiogeek.sophtwhere.com/clever/guide.html) explains each tool in plain language, with step-by-step workflows and a Smaart translation table.
+
 ## Hosting
 
 Serve this folder as static files over HTTPS. Browsers only allow microphone and WebHID access on HTTPS or `localhost`. Everything uses relative paths, so the app works under any subfolder, for example `/clever/`.

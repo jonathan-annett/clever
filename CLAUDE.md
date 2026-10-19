@@ -9,6 +9,7 @@ The owner is a live sound engineer. He tests on real gear at venues, so anything
 | File | Purpose |
 |---|---|
 | `index.html` | The whole app: HTML, CSS and two inline scripts. No build step, no dependencies. |
+| `guide.html` | User guide for people new to measurement. Linked from the ? button and the About section. Keep it in step with UI labels when they change. |
 | `sw.js` | Service worker. Network first with a 4 s timeout, cache fallback for offline use at venues. |
 | `manifest.webmanifest` | Home-screen install (name "clever by audiogeek", short name "clever"). |
 | `icon-*.png` | App icons (192, 512, maskable 512). |
@@ -20,7 +21,7 @@ Keep it a single self-contained page. Don't add a bundler, framework or npm depe
 - Served by the owner's Node/Express server as static files under `/clever/`, over HTTPS. Mic access and WebHID require HTTPS.
 - The server folder is a git clone of this repo. The owner deploys by running `git pull` on the server, usually over SSH from Termux on his phone. There is no CI.
 - All paths are relative (manifest `start_url` and `scope` are `./`, the service worker is registered as `sw.js`). Keep them relative so the app works in any subfolder.
-- When you change cached assets, bump `CACHE` in `sw.js` (currently `clever-v2`) so installed copies refresh.
+- When you change cached assets, bump `CACHE` in `sw.js` (currently `clever-v3`) so installed copies refresh.
 - Commit and push to `main`, then tell the owner to pull.
 
 ## Code map (`index.html`)

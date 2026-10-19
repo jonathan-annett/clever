@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>clever user guide</title>
+<meta name="description" content="How to use clever, the browser-based audio analyzer: RTA, spectrograph, SPL meter, transfer function, delay and traces, explained for people new to measurement.">
+<meta name="theme-color" content="#141a21">
+<link rel="icon" href="icon-192.png">
+<link rel="canonical" href="https://audiogeek.sophtwhere.com/clever/guide.html">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+/* Layout: reading page matching the app. Sticky bar with wordmark, contents rail on wide screens, one 70ch column of text. Dark-only like the app. */
+:root{
+  color-scheme: dark;
+  --bg:#0e1217; --panel:#141a21; --panel2:#1a212a; --raise:#212a35;
+  --line:#263140; --grid:#1c2530; --grid2:#2b3746;
+  --fg:#d5dde6; --dim:#8a97a7; --faint:#5d6979;
+  --accent:#e9a23b; --live:#63c7ff; --coh:#e05a4a; --ok:#5fcf8a;
+  --ui:"IBM Plex Sans Condensed","Roboto Condensed","Arial Narrow",system-ui,sans-serif;
+  --body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html{scroll-padding-top:70px}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.65 var(--body)}
+a{color:var(--live)}
+a:hover{color:#9edcff}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.bar{position:sticky;top:0;z-index:5;background:var(--panel);border-bottom:1px solid var(--line);
+  padding:10px max(16px,env(safe-area-inset-right,0px)) 10px max(16px,env(safe-area-inset-left,0px));
+  padding-top:max(10px,env(safe-area-inset-top,0px));display:flex;align-items:center;gap:14px}
+.wm{font-family:var(--ui);font-weight:700;letter-spacing:-.02em;color:var(--fg);text-decoration:none}
+.wm em{font-style:normal;color:var(--accent)}
+.bar .wm{font-size:22px;line-height:1}
+.bar .sub{font:500 11px var(--mono);color:var(--faint);letter-spacing:.12em;text-transform:uppercase}
+.bar .open{margin-left:auto;background:var(--accent);color:#1a1206;font:700 13px var(--ui);letter-spacing:.06em;text-transform:uppercase;text-decoration:none;padding:7px 14px;border-radius:4px}
+
+.wrap{display:grid;grid-template-columns:230px minmax(0,1fr);gap:48px;max-width:1120px;margin:0 auto;
+  padding:32px max(16px,env(safe-area-inset-right,0px)) 80px max(16px,env(safe-area-inset-left,0px))}
+nav.toc{position:sticky;top:76px;align-self:start;max-height:calc(100vh - 96px);overflow:auto;font:14px/1.5 var(--ui)}
+nav.toc p{font-weight:600;letter-spacing:.1em;text-transform:uppercase;font-size:12px;color:var(--dim);margin:0 0 8px}
+nav.toc ol{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+nav.toc a{color:var(--dim);text-decoration:none;display:block;padding:3px 0 3px 10px;border-left:2px solid var(--line)}
+nav.toc a:hover{color:var(--fg);border-color:var(--accent)}
+nav.toc .n{font-family:var(--mono);color:var(--faint);font-size:12px;margin-right:6px}
+
+main{max-width:70ch;min-width:0}
+.hero{margin-bottom:40px}
+.hero .wm{font-size:clamp(48px,9vw,76px);line-height:.9;display:block}
+.hero h1{font:600 clamp(22px,3.4vw,28px)/1.25 var(--ui);margin:14px 0 10px;text-wrap:balance}
+.hero p{color:var(--dim);margin:0;font-size:17px}
+
+section{padding-top:16px;margin-top:40px;border-top:1px solid var(--line)}
+h2{font:700 26px/1.2 var(--ui);margin:6px 0 14px;text-wrap:balance}
+h2 .n{font:500 13px var(--mono);color:var(--accent);display:block;letter-spacing:.08em;margin-bottom:4px}
+h3{font:600 19px/1.3 var(--ui);margin:28px 0 8px;color:var(--fg)}
+p{margin:0 0 14px}
+ul,ol{margin:0 0 14px;padding-left:22px}
+li{margin:4px 0}
+li::marker{color:var(--faint)}
+strong{color:#eef3f8;font-weight:600}
+code,kbd,.ui{font-family:var(--mono);font-size:.86em}
+.ui{background:var(--raise);border:1px solid var(--grid2);border-radius:3px;padding:1px 6px;white-space:nowrap;color:var(--fg)}
+kbd{background:var(--raise);border:1px solid var(--grid2);border-bottom-width:2px;border-radius:3px;padding:0 6px}
+
+.callout{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--live);border-radius:4px;padding:12px 16px;margin:18px 0}
+.callout.warn{border-left-color:var(--accent)}
+.callout p:last-child,.callout ul:last-child{margin-bottom:0}
+.callout .h{font:600 13px var(--ui);letter-spacing:.08em;text-transform:uppercase;color:var(--dim);display:block;margin-bottom:4px}
+
+.steps{counter-reset:s;list-style:none;padding:0;display:grid;gap:10px;margin:14px 0 18px}
+.steps>li{counter-increment:s;display:grid;grid-template-columns:32px 1fr;gap:10px;margin:0}
+.steps>li::before{content:counter(s);font:600 14px var(--mono);color:#1a1206;background:var(--accent);width:26px;height:26px;border-radius:50%;display:grid;place-items:center;margin-top:1px}
+
+figure{margin:22px 0;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:14px;overflow-x:auto}
+figure svg{display:block;width:100%;height:auto;min-width:520px}
+figcaption{font-size:14px;color:var(--dim);margin-top:10px;line-height:1.5}
+svg text{font-family:var(--ui)}
+
+.tablewrap{overflow-x:auto;margin:16px 0 20px}
+table{border-collapse:collapse;width:100%;font-size:15px;min-width:460px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:600 13px var(--ui);letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+td:first-child{white-space:nowrap;color:#eef3f8}
+
+dl.gloss{display:grid;grid-template-columns:minmax(120px,190px) 1fr;gap:10px 18px;margin:16px 0}
+dl.gloss dt{font:600 15px var(--ui);color:#eef3f8}
+dl.gloss dd{margin:0;color:var(--fg)}
+
+footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:var(--faint);font-size:14px}
+
+@media (max-width:900px){
+  .wrap{grid-template-columns:1fr;gap:0;padding-top:20px}
+  nav.toc{position:static;max-height:none;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:14px;margin-bottom:28px}
+  .bar .sub{display:none}
+}
+@media (max-width:520px){
+  dl.gloss{grid-template-columns:1fr;gap:2px}
+  dl.gloss dd{margin-bottom:12px}
+}
+</style>
+</head>
+<body>
+<header class="bar">
+  <a class="wm" href="./">cle<em>v</em>er</a><span class="sub">User guide</span>
+  <a class="open" href="./">Open clever</a>
+</header>
+
+<div class="wrap">
+  <nav class="toc" aria-label="Contents">
+    <p>Contents</p>
+    <ol>
+      <li><a href="#what"><span class="n">01</span>What clever does</a></li>
+      <li><a href="#two-kinds"><span class="n">02</span>Two kinds of measurement</a></li>
+      <li><a href="#start"><span class="n">03</span>First five minutes</a></li>
+      <li><a href="#mic"><span class="n">04</span>Your microphone</a></li>
+      <li><a href="#rta"><span class="n">05</span>RTA</a></li>
+      <li><a href="#spec"><span class="n">06</span>Spectrograph</a></li>
+      <li><a href="#spl"><span class="n">07</span>SPL meter</a></li>
+      <li><a href="#tf"><span class="n">08</span>Transfer function</a></li>
+      <li><a href="#tf-read"><span class="n">09</span>Reading the TF plots</a></li>
+      <li><a href="#traces"><span class="n">10</span>Traces</a></li>
+      <li><a href="#workflows"><span class="n">11</span>Common jobs</a></li>
+      <li><a href="#control"><span class="n">12</span>Phone, keys, Stream Deck</a></li>
+      <li><a href="#trouble"><span class="n">13</span>Troubleshooting</a></li>
+      <li><a href="#smaart"><span class="n">14</span>Coming from Smaart</a></li>
+      <li><a href="#glossary"><span class="n">15</span>Glossary</a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <div class="hero">
+      <span class="wm">cle<em>v</em>er</span>
+      <h1>A plain-language guide to measuring sound with clever</h1>
+      <p>No prior experience with Smaart, REW or any other analyzer needed. Each tool is explained by the question it answers, then how to read it.</p>
+    </div>
+
+    <section id="what">
+      <h2><span class="n">01</span>What clever does</h2>
+      <p>clever turns a laptop, tablet or phone plus a measurement microphone into an audio analyzer. It runs in Chrome or Edge with nothing to install. It answers questions like:</p>
+      <ul>
+        <li>Which frequencies are loud in this room right now?</li>
+        <li>How loud is it, by the standards a venue or council uses?</li>
+        <li>Is something about to feed back?</li>
+        <li>What is the PA doing to the signal I send it, and did my EQ change fix it?</li>
+        <li>Are the subs and mains arriving at the same time?</li>
+      </ul>
+      <h3>What you need</h3>
+      <ul>
+        <li><strong>A measurement microphone.</strong> clever has built-in support for the miniDSP UMIK-1 and the Dayton iMM-6C, which plug straight into USB. Any mic through an audio interface works too. Vocal mics such as an SM58 aren't flat enough to measure with.</li>
+        <li><strong>Chrome or Edge.</strong> Other browsers lack some of the audio features clever needs.</li>
+        <li><strong>The mic's calibration file</strong> (optional but recommended). See <a href="#mic">Your microphone</a>.</li>
+      </ul>
+    </section>
+
+    <section id="two-kinds">
+      <h2><span class="n">02</span>Two kinds of measurement</h2>
+      <p>Every tool in clever falls into one of two groups. Knowing which you're using is most of the battle.</p>
+      <h3>Single-channel: what does it sound like here?</h3>
+      <p>One microphone, and clever reports what it hears. This is the <strong>RTA</strong>, the <strong>spectrograph</strong> and the <strong>SPL meter</strong>. These tools work on anything: a band playing, a playlist, pink noise, crowd noise. Think of them as very precise ears.</p>
+      <p>Their limit is that they show the music and the system together. If the RTA shows a bump at 200 Hz, you can't tell whether the room or PA is causing it, or whether the song simply has a lot of bass there.</p>
+      <h3>Dual-channel: what is the system doing to my signal?</h3>
+      <p>Two signals: the <strong>reference</strong>, which is what you sent into the system, and the <strong>measurement</strong>, which is what the mic picked up after it came out of the speakers and travelled through the room. clever compares the two, so the content of the signal cancels out and only the system's effect remains. This is the <strong>transfer function</strong>, shown as magnitude, phase and coherence.</p>
+      <p>Because the music cancels out, a transfer function works during a show with live programme material, not only with test noise. That's the main reason professionals use it.</p>
+      <figure>
+        <svg viewBox="0 0 720 230" role="img" aria-labelledby="f1t">
+          <title id="f1t">Signal flow for a dual-channel measurement</title>
+          <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#8a97a7"/></marker>
+          <marker id="arA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#e9a23b"/></marker>
+          <marker id="arL" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#63c7ff"/></marker></defs>
+          <rect x="10" y="40" width="120" height="56" rx="6" fill="#212a35" stroke="#2b3746"/>
+          <text x="70" y="64" text-anchor="middle" fill="#d5dde6" font-size="15" font-weight="600">Signal</text>
+          <text x="70" y="84" text-anchor="middle" fill="#8a97a7" font-size="12">pink noise or music</text>
+          <rect x="190" y="40" width="160" height="56" rx="6" fill="#212a35" stroke="#2b3746"/>
+          <text x="270" y="64" text-anchor="middle" fill="#d5dde6" font-size="15" font-weight="600">The system</text>
+          <text x="270" y="84" text-anchor="middle" fill="#8a97a7" font-size="12">desk, EQ, amps, speakers</text>
+          <rect x="410" y="40" width="120" height="56" rx="6" fill="#212a35" stroke="#2b3746"/>
+          <text x="470" y="64" text-anchor="middle" fill="#d5dde6" font-size="15" font-weight="600">Room</text>
+          <text x="470" y="84" text-anchor="middle" fill="#8a97a7" font-size="12">air, reflections</text>
+          <circle cx="600" cy="68" r="22" fill="#212a35" stroke="#63c7ff" stroke-width="2"/>
+          <text x="600" y="73" text-anchor="middle" fill="#63c7ff" font-size="13" font-weight="600">mic</text>
+          <path d="M130 68 H186" stroke="#8a97a7" stroke-width="2" marker-end="url(#ar)" fill="none"/>
+          <path d="M350 68 H406" stroke="#8a97a7" stroke-width="2" marker-end="url(#ar)" fill="none"/>
+          <path d="M530 68 H574" stroke="#8a97a7" stroke-width="2" marker-end="url(#ar)" fill="none"/>
+          <rect x="250" y="160" width="220" height="56" rx="6" fill="#141a21" stroke="#e9a23b"/>
+          <text x="360" y="186" text-anchor="middle" fill="#e9a23b" font-size="16" font-weight="700">clever compares</text>
+          <text x="360" y="205" text-anchor="middle" fill="#8a97a7" font-size="12">measurement ÷ reference</text>
+          <path d="M150 68 V188 H246" stroke="#e9a23b" stroke-width="2" marker-end="url(#arA)" fill="none"/>
+          <text x="158" y="140" fill="#e9a23b" font-size="13" font-weight="600">reference</text>
+          <path d="M600 90 V188 H474" stroke="#63c7ff" stroke-width="2" marker-end="url(#arL)" fill="none"/>
+          <text x="592" y="140" text-anchor="end" fill="#63c7ff" font-size="13" font-weight="600">measurement</text>
+        </svg>
+        <figcaption>The reference is taken before the system and the measurement after it. Whatever is different between them is what the system and room did.</figcaption>
+      </figure>
+    </section>
+
+    <section id="start">
+      <h2><span class="n">03</span>First five minutes</h2>
+      <p>This gets you a working RTA and sound level meter.</p>
+      <ol class="steps">
+        <li><span>Plug in the measurement mic, then open clever in Chrome or Edge.</span></li>
+        <li><span>Press <span class="ui">Start</span>. The browser asks for microphone permission; allow it. If your mic is a UMIK-1 or iMM-6C, clever usually selects it automatically. Otherwise choose it under <span class="ui">Inputs › Measurement</span> in the settings panel (the ☰ button on a phone).</span></li>
+        <li><span>Watch the <span class="ui">MEAS</span> meter in the top bar move when you talk or clap. If it stays still, the wrong input is selected.</span></li>
+        <li><span>The top plot is now a live RTA, and the number at the top right is the sound level in dBA.</span></li>
+        <li><span>Load your mic's calibration file (next section) so those readings are accurate.</span></li>
+      </ol>
+      <div class="callout"><span class="h">Tip</span><p>On a phone, clever opens with only the RTA showing. Tap <span class="ui">ALL PANES</span> in the top bar to see the transfer function plots as well.</p></div>
+    </section>
+
+    <section id="mic">
+      <h2><span class="n">04</span>Your microphone</h2>
+      <h3>Why calibration files matter</h3>
+      <p>No microphone is perfectly flat. A measurement mic comes with a small text file listing how far its response deviates at each frequency, made for that individual mic and tied to its serial number. clever subtracts those deviations so you see the room, not the mic. Without it, readings above about 10 kHz in particular can be several dB off.</p>
+      <h3>Getting the file</h3>
+      <ul>
+        <li><strong>miniDSP UMIK-1:</strong> open <span class="ui">Microphone</span>, choose <span class="ui">miniDSP UMIK-1</span>, and type the serial from the mic body, for example <code>700-1234</code>. Pick <span class="ui">0°</span> if you'll point the mic at the speakers, or <span class="ui">90°</span> if you'll point it at the ceiling (common when measuring speakers all around you). Then use the link that appears to download the file.</li>
+        <li><strong>Dayton iMM-6C:</strong> choose <span class="ui">Dayton iMM-6C</span> and follow the link to Dayton's calibration tool, where you enter the serial from the packaging.</li>
+        <li><strong>Anything else:</strong> any text file of frequency and dB pairs works.</li>
+      </ul>
+      <p>Load the file with <span class="ui">Load cal file…</span> or by dragging it onto the page. clever keeps it as a <strong>mic profile</strong> in that browser, so you only do this once per device. If you own several mics, each gets its own profile and you switch with <span class="ui">Active mic</span>.</p>
+      <h3>Making the SPL reading accurate</h3>
+      <p>The calibration file fixes the <em>shape</em> of the response. The <em>absolute</em> level, meaning how many dB SPL a given signal is, depends on the mic's sensitivity. The UMIK-1 file includes a sensitivity figure, so its readings start close to correct. The iMM-6C file doesn't, so its readings start as a rough guess.</p>
+      <p>The proper fix is an <strong>acoustic calibrator</strong>: a small device that fits over the mic and produces a known level, usually 94 or 114 dB SPL at 1 kHz. Fit it, press <span class="ui">Start</span>, enter the calibrator's level under <span class="ui">SPL meter › Calibrator</span>, and press <span class="ui">Set offset from calibrator</span>. The offset is saved to that mic's profile.</p>
+    </section>
+
+    <section id="rta">
+      <h2><span class="n">05</span>RTA: which frequencies are loud right now?</h2>
+      <p>RTA stands for <strong>real-time analyzer</strong>. It splits the sound into frequency bands and shows how loud each one is, updated many times a second.</p>
+      <h3>How to read it</h3>
+      <ul>
+        <li><strong>Left to right</strong> is frequency, from 20 Hz (deep sub bass) to 20 kHz (the top of human hearing). The scale is logarithmic: each step from 100 to 1k to 10k gets the same width, because that's how we hear pitch.</li>
+        <li><strong>Height</strong> is level, in dBFS (relative to the loudest signal the input can take, so 0 is the top and numbers are negative) or in dB SPL if you switch <span class="ui">Units</span>.</li>
+        <li><strong>Bars</strong> are bands. <span class="ui">1/3 oct</span> is the classic view: 31 bands, each a third of an octave wide. Narrower bands such as 1/12 or 1/24 show more detail. <span class="ui">Line</span> draws a fine continuous curve.</li>
+        <li>The <strong>amber marks</strong> above the bars are peak hold: the highest recent level in each band, slowly falling.</li>
+        <li><span class="ui">Response</span> sets how jumpy the display is. <span class="ui">Fast</span> follows the music; <span class="ui">Slow</span> averages over about a second and is easier to read.</li>
+      </ul>
+      <div class="callout"><span class="h">Frame of reference</span><p>Pink noise has equal energy in every octave, so on a fractional-octave RTA it looks roughly flat. Play pink noise through a system and the RTA shows the system's overall tonal balance at the mic. Music never looks flat; that's normal.</p></div>
+      <h3>Good uses</h3>
+      <ul>
+        <li>Spotting one band that sticks out far above its neighbours and won't go away: often a resonance, or feedback starting.</li>
+        <li>Checking the noise floor of a quiet room (air conditioning hum, buzz from a ground loop).</li>
+        <li>A quick sanity check of tonal balance with a familiar track.</li>
+      </ul>
+    </section>
+
+    <section id="spec">
+      <h2><span class="n">06</span>Spectrograph: what has been happening over time?</h2>
+      <p>The spectrograph is an RTA with a memory. Frequency still runs left to right, but each new moment is drawn as a thin coloured line at the top and the history scrolls downward. Colour shows level: dark is quiet, through purple and orange, to pale yellow for the loudest.</p>
+      <p>Music makes a busy, shifting pattern. Problems leave <strong>straight vertical stripes</strong>: one frequency that stays loud while everything around it changes. That stripe is the classic early sign of feedback or a strong room resonance, and it is far easier to see here than on a jumping RTA.</p>
+      <p>Set <span class="ui">Spec floor</span> and <span class="ui">Ceiling</span> to bracket the levels you care about. If everything is dark, lower both; if it's all yellow, raise them.</p>
+    </section>
+
+    <section id="spl">
+      <h2><span class="n">07</span>SPL meter: how loud is it?</h2>
+      <p>The large number at the top right is the sound pressure level, the same measurement a handheld sound level meter gives. Three settings change what it means.</p>
+      <div class="tablewrap"><table>
+        <tr><th>Setting</th><th>Options</th><th>What it means</th></tr>
+        <tr><td>Weighting</td><td>A, C, Z</td><td><strong>A</strong> mimics how the ear hears at moderate levels and largely ignores deep bass. It's the standard for noise limits and hearing safety. <strong>C</strong> includes most of the bass and is used for low-frequency limits. <strong>Z</strong> is flat, with no weighting.</td></tr>
+        <tr><td>Time</td><td>Fast, Slow</td><td>How quickly the number reacts. Fast (1/8 s) follows the music; Slow (1 s) is steadier.</td></tr>
+        <tr><td>Leq</td><td>reset button</td><td>The <strong>equivalent continuous level</strong>: the average energy since you last reset it. Venue limits are usually written as Leq over a period such as 15 minutes, because a few loud hits matter less than sustained level.</td></tr>
+      </table></div>
+      <p><strong>Max</strong> is the highest reading since the last reset. Press <span class="ui">Reset Leq / Max</span> at the start of a set.</p>
+      <p>Labels on the readout tell you what you're looking at: <strong>dBA</strong> means A-weighted, <strong>dBC</strong> C-weighted. An unlabelled "100 dB" means little, so always quote the weighting.</p>
+    </section>
+
+    <section id="tf">
+      <h2><span class="n">08</span>Transfer function: setting it up</h2>
+      <p>The transfer function needs a reference signal. There are two ways to get one.</p>
+      <h3>Option A: internal loopback (quickest)</h3>
+      <p>clever generates pink noise itself, plays it out of the computer's audio output, and uses its own copy as the reference. Set <span class="ui">Inputs › Reference</span> to <span class="ui">Generator (internal loopback)</span>. Connect the computer's output to the system you want to measure: a speaker, or a channel on the desk.</p>
+      <p>This measures everything from the computer's output to the mic, including the desk and its EQ, which is often exactly what you want.</p>
+      <h3>Option B: external reference (how pros set it up)</h3>
+      <p>Use an audio interface with at least two inputs. Send the signal (pink noise from clever, or music) into the desk. Patch a feed of the signal into interface input 1 at the point where your measurement should start, often the desk's output before the system processor. Connect the measurement mic to input 2. In clever, set <span class="ui">Measurement</span> to the interface, channel 2, and <span class="ui">Reference</span> to the interface, channel 1.</p>
+      <p>Now the transfer function shows only what happens <em>after</em> the reference point, so you can measure the processor, amps and speakers without the desk's channel EQ getting in the way. It also works with music during a show.</p>
+      <h3>Then, every time</h3>
+      <ol class="steps">
+        <li><span>Turn the generator on with a low <span class="ui">Level</span>, around −30 dBFS, and bring it up gently until the mic's <span class="ui">MEAS</span> meter sits around −30 to −15 dBFS.</span></li>
+        <li><span>Press <span class="ui">Find delay</span>. Sound takes time to travel from the speaker to the mic (about 2.9 ms per metre), and the computer adds its own delay. clever finds the total and lines the reference up with the measurement. Without this step the plots are mostly noise.</span></li>
+        <li><span>Watch the phase and magnitude plots settle. Press <span class="ui">Reset averages</span> if you move the mic.</span></li>
+      </ol>
+      <div class="callout warn"><span class="h">Look after ears and drivers</span><p>Pink noise is loud and fatiguing, and full-level noise can damage tweeters. Start low, wear hearing protection for long sessions, and warn people in the room before you turn it on.</p></div>
+    </section>
+
+    <section id="tf-read">
+      <h2><span class="n">09</span>Reading the transfer function plots</h2>
+      <h3>Magnitude: louder or quieter at each frequency</h3>
+      <p>The bottom plot. The line shows how much louder (above 0) or quieter (below 0) the system makes each frequency compared with what went in. A perfectly flat system would be a flat line. Hills are frequencies the system exaggerates; valleys are ones it loses.</p>
+      <p>The line's height depends on gain settings, so its absolute position isn't important; its <em>shape</em> is. Press <span class="ui">Center trace</span> to slide it to the middle of the plot.</p>
+      <h3>Coherence: can you trust this part of the plot?</h3>
+      <p>The red line along the top of the magnitude plot, from 0 to 1. It tells you how consistently the measurement relates to the reference at each frequency.</p>
+      <ul>
+        <li><strong>Near 1</strong>: solid, trustworthy data.</li>
+        <li><strong>Low or jumping</strong>: something else is going on. Usually background noise, heavy reverberation, too little signal at that frequency, or the delay not being set.</li>
+      </ul>
+      <p>With <span class="ui">Coh. blanking</span> turned on, clever hides the magnitude and phase wherever coherence falls below the threshold, so you only see data worth acting on.</p>
+      <figure>
+        <svg viewBox="0 0 720 250" role="img" aria-labelledby="f2t">
+          <title id="f2t">Example magnitude plot with a hill, a narrow dip and the coherence line</title>
+          <rect x="50" y="10" width="650" height="200" fill="#0e1217" stroke="#263140"/>
+          <g stroke="#1c2530"><line x1="50" y1="60" x2="700" y2="60"/><line x1="50" y1="160" x2="700" y2="160"/></g>
+          <line x1="50" y1="110" x2="700" y2="110" stroke="#2b3746"/>
+          <g fill="#8a97a7" font-size="12" text-anchor="end"><text x="44" y="64">+6</text><text x="44" y="114">0</text><text x="44" y="164">−6</text></g>
+          <g fill="#8a97a7" font-size="12" text-anchor="middle"><text x="50" y="228">20</text><text x="208" y="228">100</text><text x="375" y="228">1k</text><text x="541" y="228">10k</text><text x="700" y="228">20k</text></g>
+          <path d="M50 26 C120 24 180 30 240 28 C300 26 340 40 370 72 C380 86 386 30 400 30 C460 26 560 30 620 40 C660 50 690 66 700 76" stroke="#e05a4a" stroke-width="2" fill="none"/>
+          <path d="M50 150 C90 120 120 112 150 108 C175 104 195 74 225 72 C255 70 270 104 300 108 C340 112 360 112 368 116 C372 160 378 168 384 118 C392 110 450 108 520 110 C580 112 640 122 700 150" stroke="#63c7ff" stroke-width="2.4" fill="none"/>
+          <path d="M225 70 L225 46" stroke="#e9a23b" stroke-width="1.5"/>
+          <text x="232" y="48" fill="#e9a23b" font-size="13" font-weight="600">broad hill: good EQ candidate</text>
+          <path d="M378 170 L430 190" stroke="#e9a23b" stroke-width="1.5"/>
+          <text x="436" y="196" fill="#e9a23b" font-size="13" font-weight="600">narrow dip, coherence drops too: leave it</text>
+          <text x="696" y="24" text-anchor="end" fill="#e05a4a" font-size="12">coherence</text>
+        </svg>
+        <figcaption>A broad hill with good coherence is something the system adds, and EQ can fix it. A narrow dip where coherence also drops is usually a reflection cancelling the direct sound at this mic position; boosting it wastes power and won't fill it.</figcaption>
+      </figure>
+      <h3>Phase: is everything arriving at the same time?</h3>
+      <p>The middle plot shows the timing of each frequency, in degrees from −180° to +180°. When the line reaches the top it wraps to the bottom, which is normal and doesn't mean anything has jumped.</p>
+      <ul>
+        <li><strong>Flat near 0°</strong>: everything arrives together, the ideal.</li>
+        <li><strong>A steady slope that wraps more and more often towards high frequencies</strong>: the delay is set wrong. Press <span class="ui">Find delay</span> again.</li>
+        <li><strong>A gentle bend in one region</strong>: normal around crossovers and the low end of a speaker's range.</li>
+        <li><strong>Everything shifted by 180°</strong>: something is wired in reverse polarity. <span class="ui">Invert measurement polarity</span> lets you confirm.</li>
+      </ul>
+      <p>Phase matters most where two sources overlap, such as subs and mains at the crossover. If their phase traces line up there, they add together; if they're far apart, they cancel.</p>
+      <h3>Delay and the impulse view</h3>
+      <p>The <span class="ui">Impulse</span> tab in the top plot shows the system's response to a single click. A tall spike at 0 ms means the delay is set correctly. If the spike sits off zero, press <span class="ui">Add to delay</span> to correct it. Smaller spikes after the main one are reflections from walls and ceilings arriving later.</p>
+      <h3>Averages and smoothing</h3>
+      <ul>
+        <li><span class="ui">Averages</span>: how many measurements are combined. More gives a steadier, more reliable trace but reacts more slowly. 8 to 16 is a good default; use 1 or 2 to see changes instantly.</li>
+        <li><span class="ui">Smoothing</span>: blurs the trace across neighbouring frequencies. 1/24 octave shows real detail; 1/6 or 1/3 shows the overall tonal shape, closer to what you hear. Don't EQ fine wiggles you can only see with no smoothing.</li>
+        <li><span class="ui">FFT › Multi-time window</span>: clever automatically uses long analysis windows for bass and short ones for treble, so both are sharp. Leave it on unless you have a reason not to.</li>
+      </ul>
+    </section>
+
+    <section id="traces">
+      <h2><span class="n">10</span>Traces: before and after</h2>
+      <p>A trace is a frozen snapshot of the transfer function. Press <span class="ui">Capture</span> (or <kbd>C</kbd>) and the current magnitude and phase are stored and drawn in a fixed colour behind the live trace.</p>
+      <ul>
+        <li>Capture before you EQ, then watch the live trace move as you adjust.</li>
+        <li>Capture at several seats to see what's the same everywhere (fix it with EQ) and what changes from seat to seat (it's the room, and EQ won't help).</li>
+        <li>Rename traces in the list so you remember what they were, and switch each one on or off with its tick box.</li>
+        <li><span class="ui">Export CSV</span> saves traces as files you can keep or open in a spreadsheet; <span class="ui">Import…</span> loads them back, including frequency response files from other tools.</li>
+      </ul>
+      <p>Traces are kept in this browser between sessions. Export the ones that matter, because clearing browser data deletes them.</p>
+    </section>
+
+    <section id="workflows">
+      <h2><span class="n">11</span>Common jobs, step by step</h2>
+      <h3>Tune a PA with EQ</h3>
+      <ol class="steps">
+        <li><span>Set up the transfer function (section 8) with the mic at a typical listening position, about ear height, away from walls.</span></li>
+        <li><span>Find delay, use 1/6 octave smoothing, 16 averages, and coherence blanking at 0.5. Press <span class="ui">Center trace</span>.</span></li>
+        <li><span>Capture the trace. Move the mic to two or three other seats and capture there too.</span></li>
+        <li><span>Look for broad shapes that appear at every position with good coherence. Those are the system; EQ them with wide, gentle filters.</span></li>
+        <li><span>Watch the live trace while you EQ, and compare with your "before" capture. Leave narrow dips alone.</span></li>
+        <li><span>Finish by listening to familiar music. The measurement guides you; your ears make the final call.</span></li>
+      </ol>
+      <h3>Line up subs with the main speakers</h3>
+      <ol class="steps">
+        <li><span>Mute the subs, measure the mains, find delay, and capture as "Mains".</span></li>
+        <li><span>Mute the mains, unmute the subs, and capture as "Subs" <em>without</em> pressing Find delay again, so both traces share the same timing.</span></li>
+        <li><span>On the phase plot, look at the crossover region where the two magnitude traces are at similar levels. Adjust the delay on whichever arrives first (in the processor, not in clever) until the phase traces overlap there.</span></li>
+        <li><span>Unmute both. The combined magnitude should now be fuller through the crossover rather than showing a dip.</span></li>
+      </ol>
+      <h3>Ring out monitors or catch feedback</h3>
+      <ol class="steps">
+        <li><span>Use the <span class="ui">Spectrograph</span> view, or the RTA at 1/12 or 1/24 octave with peak hold on.</span></li>
+        <li><span>Slowly raise the monitor gain with the mic in position. When a single frequency starts to ring, it appears as a growing vertical stripe or a spike.</span></li>
+        <li><span>Hover or tap on it for the exact frequency, cut it with a narrow EQ filter, and continue.</span></li>
+      </ol>
+      <h3>Keep a set under a noise limit</h3>
+      <ol class="steps">
+        <li><span>Calibrate the mic with a calibrator (section 4), then place it where the limit applies, usually front of house.</span></li>
+        <li><span>Set the weighting the limit specifies (usually A) and press <span class="ui">Reset Leq / Max</span> as the set starts.</span></li>
+        <li><span>Keep the Leq figure under the limit. The live number can go over briefly; the average is what's usually enforced.</span></li>
+      </ol>
+    </section>
+
+    <section id="control">
+      <h2><span class="n">12</span>Phone, keyboard and Stream Deck</h2>
+      <h3>On a phone or tablet</h3>
+      <ul>
+        <li>In Chrome's menu, choose <strong>Add to home screen</strong>. clever then opens full screen and works without a signal, once it's been opened online at least once.</li>
+        <li>The screen stays on while clever is running.</li>
+        <li>Tap a plot to read the frequency and level at that point.</li>
+        <li>USB-C measurement mics such as the iMM-6C plug straight in.</li>
+      </ul>
+      <h3>Keyboard shortcuts</h3>
+      <div class="tablewrap"><table>
+        <tr><th>Key</th><th>Action</th></tr>
+        <tr><td><kbd>Space</kbd></td><td>Start or stop</td></tr>
+        <tr><td><kbd>G</kbd></td><td>Generator on or off</td></tr>
+        <tr><td><kbd>D</kbd></td><td>Find delay</td></tr>
+        <tr><td><kbd>C</kbd></td><td>Capture a trace</td></tr>
+        <tr><td><kbd>R</kbd></td><td>Reset averages</td></tr>
+        <tr><td><kbd>L</kbd></td><td>Switch between RTA only and all panes</td></tr>
+        <tr><td><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></td><td>Top plot: RTA, Spectrograph, Impulse</td></tr>
+      </table></div>
+      <h3>Stream Deck</h3>
+      <p>On a computer with Chrome or Edge, an Elgato Stream Deck (XL, MK.2 or V2) can run clever hands-free. Quit the Elgato software first, then press <span class="ui">Connect Stream Deck</span>. The keys show live values: generator, delay, smoothing, averages, trace on/off, SPL, Leq and input levels. Tick <span class="ui">Show on-screen console</span> to get the same buttons on screen, which also works on phones.</p>
+    </section>
+
+    <section id="trouble">
+      <h2><span class="n">13</span>Troubleshooting</h2>
+      <div class="tablewrap"><table>
+        <tr><th>Problem</th><th>Try this</th></tr>
+        <tr><td>Start does nothing, or says permission was blocked</td><td>Click the icon at the left of the address bar and allow the microphone. The page must be on <code>https://</code> or <code>localhost</code>.</td></tr>
+        <tr><td>MEAS meter doesn't move</td><td>Pick the right device under <span class="ui">Measurement</span>; for a two-channel interface, check the channel.</td></tr>
+        <tr><td>Meter shows CLIP</td><td>Too much level into the input. Turn down the generator or the interface gain.</td></tr>
+        <tr><td>Coherence is low everywhere</td><td>Press Find delay. Check the reference is getting signal (the <span class="ui">REF</span> meter). Make sure the generator is on and audible at the mic.</td></tr>
+        <tr><td>Find delay says no clear peak</td><td>The mic isn't hearing the generator clearly. Raise the level, move closer, or check the reference source.</td></tr>
+        <tr><td>Phase wraps faster and faster at high frequencies</td><td>The delay is off. Find delay again, or check the Impulse view.</td></tr>
+        <tr><td>Readings drift slowly over a long session</td><td>When the reference and the mic are on two different USB devices, their clocks drift a little. Press Find delay now and then.</td></tr>
+        <tr><td>Stream Deck isn't listed</td><td>Use Chrome or Edge on a computer, and quit the Elgato Stream Deck app first.</td></tr>
+        <tr><td>My calibration or traces disappeared</td><td>They're stored per browser and per web address. Clearing browser data, or opening clever from a different address, starts fresh. Keep the cal file and exported CSVs somewhere safe.</td></tr>
+      </table></div>
+    </section>
+
+    <section id="smaart">
+      <h2><span class="n">14</span>Coming from Smaart</h2>
+      <p>If you know Smaart, most of clever will feel familiar. The names map like this.</p>
+      <div class="tablewrap"><table>
+        <tr><th>Smaart</th><th>clever</th></tr>
+        <tr><td>Spectrum / RTA</td><td>RTA tab in the top plot</td></tr>
+        <tr><td>Spectrograph</td><td>Spectrograph tab</td></tr>
+        <tr><td>Transfer Function</td><td>Phase and Magnitude plots, with coherence on the magnitude plot</td></tr>
+        <tr><td>MTW (multi-time window)</td><td>FFT › Multi-time window</td></tr>
+        <tr><td>Delay Finder</td><td>Find delay (GCC-PHAT), plus the Impulse tab for fine adjustment</td></tr>
+        <tr><td>Live IR</td><td>Impulse tab (basic)</td></tr>
+        <tr><td>Captured traces</td><td>Traces: Capture, show/hide, CSV export and import</td></tr>
+        <tr><td>Signal generator</td><td>Generator: pink, white, sine</td></tr>
+        <tr><td>SPL meter</td><td>SPL meter: A/C/Z, Fast/Slow, Leq, Max</td></tr>
+      </table></div>
+      <p>Not in clever yet: multiple simultaneous measurement engines, averaging captured traces together, live delay tracking, SPL history graphs and logging, and acoustic analysis such as RT60.</p>
+    </section>
+
+    <section id="glossary">
+      <h2><span class="n">15</span>Glossary</h2>
+      <dl class="gloss">
+        <dt>dB (decibel)</dt><dd>A ratio on a logarithmic scale. +6 dB is about double the voltage; +10 dB sounds roughly twice as loud.</dd>
+        <dt>dBFS</dt><dd>Level relative to the loudest signal the input can record. 0 dBFS is the ceiling, so normal readings are negative.</dd>
+        <dt>dB SPL</dt><dd>Sound pressure level in the air. 94 dB SPL is the standard calibration level; a loud concert is often 100 dB or more.</dd>
+        <dt>Octave</dt><dd>A doubling of frequency, such as 100 to 200 Hz. A 1/3 octave band is a third of that span.</dd>
+        <dt>Pink noise</dt><dd>Random noise with equal energy per octave. It sounds like a waterfall and looks flat on an RTA, which makes it the standard test signal.</dd>
+        <dt>FFT</dt><dd>Fast Fourier transform, the maths that splits a signal into its frequencies.</dd>
+        <dt>Transfer function</dt><dd>What a system does to a signal passing through it, found by comparing its output with its input.</dd>
+        <dt>Coherence</dt><dd>A 0 to 1 measure of how trustworthy the transfer function is at each frequency.</dd>
+        <dt>Phase</dt><dd>Timing at each frequency, in degrees. 360° is one full cycle at that frequency.</dd>
+        <dt>Polarity</dt><dd>Whether a signal is right way up or inverted. Reversed polarity shows as a 180° phase shift at every frequency.</dd>
+        <dt>Impulse response</dt><dd>How a system responds to a single click. Its peak shows the arrival time; later peaks are reflections.</dd>
+        <dt>Leq</dt><dd>Equivalent continuous level: the steady level with the same total energy as a fluctuating one over a period.</dd>
+        <dt>A / C weighting</dt><dd>Filters on the SPL meter. A follows the ear at moderate levels; C keeps most of the bass.</dd>
+        <dt>Crossover</dt><dd>The frequency range where one speaker (say, the sub) hands over to another (the main box).</dd>
+        <dt>FOH</dt><dd>Front of house: the mixing position in the audience area, and the system that covers the audience.</dd>
+      </dl>
+    </section>
+
+    <footer>
+      clever is part of <a href="https://audiogeek.sophtwhere.com/">audiogeek</a>. Source on <a href="https://github.com/jonathan-annett/clever">GitHub</a>, MIT licence. <a href="./">Open clever</a>
+    </footer>
+  </main>
+</div>
+</body>
+</html>
