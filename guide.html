@@ -126,14 +126,15 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
       <li><a href="#rta"><span class="n">05</span>RTA</a></li>
       <li><a href="#spec"><span class="n">06</span>Spectrograph</a></li>
       <li><a href="#spl"><span class="n">07</span>SPL meter</a></li>
-      <li><a href="#tf"><span class="n">08</span>Transfer function</a></li>
-      <li><a href="#tf-read"><span class="n">09</span>Reading the TF plots</a></li>
-      <li><a href="#traces"><span class="n">10</span>Traces</a></li>
-      <li><a href="#workflows"><span class="n">11</span>Common jobs</a></li>
-      <li><a href="#control"><span class="n">12</span>Phone, keys, Stream Deck</a></li>
-      <li><a href="#trouble"><span class="n">13</span>Troubleshooting</a></li>
-      <li><a href="#smaart"><span class="n">14</span>Coming from Smaart</a></li>
-      <li><a href="#glossary"><span class="n">15</span>Glossary</a></li>
+      <li><a href="#levels"><span class="n">08</span>Levels and Bands</a></li>
+      <li><a href="#tf"><span class="n">09</span>Transfer function</a></li>
+      <li><a href="#tf-read"><span class="n">10</span>Reading the TF plots</a></li>
+      <li><a href="#traces"><span class="n">11</span>Traces</a></li>
+      <li><a href="#workflows"><span class="n">12</span>Common jobs</a></li>
+      <li><a href="#control"><span class="n">13</span>Phone, keys, Stream Deck</a></li>
+      <li><a href="#trouble"><span class="n">14</span>Troubleshooting</a></li>
+      <li><a href="#smaart"><span class="n">15</span>Coming from Smaart</a></li>
+      <li><a href="#glossary"><span class="n">16</span>Glossary</a></li>
     </ol>
   </nav>
 
@@ -218,7 +219,7 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
         <li><span>The top plot is now a live RTA, and the number at the top right is the sound level in dBA.</span></li>
         <li><span>Load your mic's calibration file (next section) so those readings are accurate.</span></li>
       </ol>
-      <div class="callout"><span class="h">Tip</span><p>On a phone, clever opens with only the RTA showing. Tap <span class="ui">ALL PANES</span> in the top bar to see the transfer function plots as well.</p></div>
+      <div class="callout"><span class="h">Tip</span><p>On a phone, clever opens with only the top plot showing. Tap <span class="ui">ALL PANES</span> in the top bar to see the transfer function plots as well.</p></div>
     </section>
 
     <section id="mic">
@@ -277,8 +278,29 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
       <p>Labels on the readout tell you what you're looking at: <strong>dBA</strong> means A-weighted, <strong>dBC</strong> C-weighted. An unlabelled "100 dB" means little, so always quote the weighting.</p>
     </section>
 
+    <section id="levels">
+      <h2><span class="n">08</span>Levels and Bands: is it staying consistent?</h2>
+      <h3>Levels: watching a feed drift</h3>
+      <p>The <span class="ui">Levels</span> tab draws the level over the last 1, 3 or 10 minutes, with a reference line and a large readout of how far the level has moved from it. Use it to keep a stream feed, a broadcast send or a presenter at a steady level over a long session.</p>
+      <ol class="steps">
+        <li><span>Point the input at the feed you want to watch: a desk output into an interface, or a mic in the room.</span></li>
+        <li><span>Once the level sounds right, press <span class="ui">Set ref</span> (or <kbd>Enter</kbd>). It takes the average of the last 10 seconds; change that under <span class="ui">Levels › Ref from</span>. You can also click or drag on the graph to place the reference exactly.</span></li>
+        <li><span>Watch the readout. It shows the current level and the difference from the reference: green within 1 dB, amber within 3 dB, red beyond that.</span></li>
+      </ol>
+      <p>There are three ways to measure loudness. Switch with the <span class="ui">LUFS ▸</span> button or <kbd>M</kbd>:</p>
+      <ul>
+        <li><strong>LUFS (short-term)</strong>: the broadcast and streaming loudness standard (ITU-R BS.1770), averaged over 3 seconds. Streaming platforms target around −14 LUFS for finished programme; for a live feed what matters is staying consistent. This is the best match for how loud something sounds.</li>
+        <li><strong>Leq 3 s</strong>: the SPL meter's weighting (A, C or Z) and calibration, averaged over 3 seconds. Use it with a calibrated mic to watch room level.</li>
+        <li><strong>RMS 3 s</strong>: plain unweighted signal level in dBFS.</li>
+      </ul>
+      <p>Levels keeps recording while you look at other tabs, so you can switch away and come back to the whole history. Each method keeps its own reference.</p>
+      <h3>Bands: which part of the spectrum is leading?</h3>
+      <p>The <span class="ui">Bands</span> tab splits the sound into the 33 standard third-octave bands from 12.5 Hz to 20 kHz. Each band is a column, and time scrolls upward with the newest moment at the bottom. The wider a band's mark, the louder it is. The loudest band at each moment is drawn in red: the <strong>hot zone</strong>.</p>
+      <p>A band that keeps turning red while the music changes around it is worth a look: a resonance, a boomy corner, or a frequency on its way to feeding back. Tap a band's label to ignore it (useful for air-conditioning rumble or a constant hum) and the hot zone will skip it; <span class="ui">Use all bands</span> brings them all back. Set the display range under <span class="ui">RTA &amp; Spectrograph › Bands floor / Ceiling</span>.</p>
+    </section>
+
     <section id="tf">
-      <h2><span class="n">08</span>Transfer function: setting it up</h2>
+      <h2><span class="n">09</span>Transfer function: setting it up</h2>
       <p>The transfer function needs a reference signal. There are two ways to get one.</p>
       <h3>Option A: internal loopback (quickest)</h3>
       <p>clever generates pink noise itself, plays it out of the computer's audio output, and uses its own copy as the reference. Set <span class="ui">Inputs › Reference</span> to <span class="ui">Generator (internal loopback)</span>. Connect the computer's output to the system you want to measure: a speaker, or a channel on the desk.</p>
@@ -296,7 +318,7 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
     </section>
 
     <section id="tf-read">
-      <h2><span class="n">09</span>Reading the transfer function plots</h2>
+      <h2><span class="n">10</span>Reading the transfer function plots</h2>
       <h3>Magnitude: louder or quieter at each frequency</h3>
       <p>The bottom plot. The line shows how much louder (above 0) or quieter (below 0) the system makes each frequency compared with what went in. A perfectly flat system would be a flat line. Hills are frequencies the system exaggerates; valleys are ones it loses.</p>
       <p>The line's height depends on gain settings, so its absolute position isn't important; its <em>shape</em> is. Press <span class="ui">Center trace</span> to slide it to the middle of the plot.</p>
@@ -353,7 +375,7 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
     </section>
 
     <section id="traces">
-      <h2><span class="n">10</span>Traces: before and after</h2>
+      <h2><span class="n">11</span>Traces: before and after</h2>
       <p>A trace is a frozen snapshot of the transfer function. Press <span class="ui">Capture</span> (or <kbd>C</kbd>) and the current magnitude and phase are stored and drawn in a fixed colour behind the live trace.</p>
       <ul>
         <li>Capture before you EQ, then watch the live trace move as you adjust.</li>
@@ -365,10 +387,10 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
     </section>
 
     <section id="workflows">
-      <h2><span class="n">11</span>Common jobs, step by step</h2>
+      <h2><span class="n">12</span>Common jobs, step by step</h2>
       <h3>Tune a PA with EQ</h3>
       <ol class="steps">
-        <li><span>Set up the transfer function (section 8) with the mic at a typical listening position, about ear height, away from walls.</span></li>
+        <li><span>Set up the transfer function (section 9) with the mic at a typical listening position, about ear height, away from walls.</span></li>
         <li><span>Find delay, use 1/6 octave smoothing, 16 averages, and coherence blanking at 0.5. Press <span class="ui">Center trace</span>.</span></li>
         <li><span>Capture the trace. Move the mic to two or three other seats and capture there too.</span></li>
         <li><span>Look for broad shapes that appear at every position with good coherence. Those are the system; EQ them with wide, gentle filters.</span></li>
@@ -397,7 +419,7 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
     </section>
 
     <section id="control">
-      <h2><span class="n">12</span>Phone, keyboard and Stream Deck</h2>
+      <h2><span class="n">13</span>Phone, keyboard and Stream Deck</h2>
       <h3>On a phone or tablet</h3>
       <ul>
         <li>In Chrome's menu, choose <strong>Add to home screen</strong>. clever then opens full screen and works without a signal, once it's been opened online at least once.</li>
@@ -413,18 +435,20 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
         <tr><td><kbd>D</kbd></td><td>Find delay</td></tr>
         <tr><td><kbd>C</kbd></td><td>Capture a trace</td></tr>
         <tr><td><kbd>R</kbd></td><td>Reset averages</td></tr>
-        <tr><td><kbd>L</kbd></td><td>Switch between RTA only and all panes</td></tr>
+        <tr><td><kbd>L</kbd></td><td>Switch between the top plot only and all panes</td></tr>
         <tr><td><kbd>S</kbd></td><td>Show or hide the settings panel</td></tr>
         <tr><td><kbd>F</kbd></td><td>Full screen</td></tr>
         <tr><td><kbd>K</kbd></td><td>Change the coherence view</td></tr>
-        <tr><td><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></td><td>Top plot: RTA, Spectrograph, Impulse</td></tr>
+        <tr><td><kbd>1</kbd> to <kbd>5</kbd></td><td>Top plot: RTA, Spectrograph, Impulse, Levels, Bands</td></tr>
+        <tr><td><kbd>M</kbd></td><td>Levels: change loudness method</td></tr>
+        <tr><td><kbd>Enter</kbd></td><td>Levels: set the reference</td></tr>
       </table></div>
       <h3>Stream Deck</h3>
       <p>On a computer with Chrome or Edge, an Elgato Stream Deck (XL, MK.2 or V2) can run clever hands-free. Quit the Elgato software first, then press <span class="ui">Connect Stream Deck</span>. The keys show live values: generator, delay, smoothing, averages, trace on/off, SPL, Leq and input levels. Tick <span class="ui">Show on-screen console</span> to get the same buttons on screen, which also works on phones.</p>
     </section>
 
     <section id="trouble">
-      <h2><span class="n">13</span>Troubleshooting</h2>
+      <h2><span class="n">14</span>Troubleshooting</h2>
       <div class="tablewrap"><table>
         <tr><th>Problem</th><th>Try this</th></tr>
         <tr><td>Start does nothing, or says permission was blocked</td><td>Click the icon at the left of the address bar and allow the microphone. The page must be on <code>https://</code> or <code>localhost</code>.</td></tr>
@@ -440,12 +464,13 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
     </section>
 
     <section id="smaart">
-      <h2><span class="n">14</span>Coming from Smaart</h2>
+      <h2><span class="n">15</span>Coming from Smaart</h2>
       <p>If you know Smaart, most of clever will feel familiar. The names map like this.</p>
       <div class="tablewrap"><table>
         <tr><th>Smaart</th><th>clever</th></tr>
         <tr><td>Spectrum / RTA</td><td>RTA tab in the top plot</td></tr>
         <tr><td>Spectrograph</td><td>Spectrograph tab</td></tr>
+        <tr><td>SPL history</td><td>Levels tab (10 minutes, LUFS, Leq or RMS)</td></tr>
         <tr><td>Transfer Function</td><td>Phase and Magnitude plots, with coherence on the magnitude plot</td></tr>
         <tr><td>MTW (multi-time window)</td><td>FFT › Multi-time window</td></tr>
         <tr><td>Delay Finder</td><td>Find delay (GCC-PHAT), plus the Impulse tab for fine adjustment</td></tr>
@@ -454,11 +479,11 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
         <tr><td>Signal generator</td><td>Generator: pink, white, sine</td></tr>
         <tr><td>SPL meter</td><td>SPL meter: A/C/Z, Fast/Slow, Leq, Max</td></tr>
       </table></div>
-      <p>Not in clever yet: multiple simultaneous measurement engines, averaging captured traces together, live delay tracking, SPL history graphs and logging, and acoustic analysis such as RT60.</p>
+      <p>Not in clever yet: multiple simultaneous measurement engines, averaging captured traces together, live delay tracking, long-term SPL logging, and acoustic analysis such as RT60.</p>
     </section>
 
     <section id="glossary">
-      <h2><span class="n">15</span>Glossary</h2>
+      <h2><span class="n">16</span>Glossary</h2>
       <dl class="gloss">
         <dt>dB (decibel)</dt><dd>A ratio on a logarithmic scale. +6 dB is about double the voltage; +10 dB sounds roughly twice as loud.</dd>
         <dt>dBFS</dt><dd>Level relative to the loudest signal the input can record. 0 dBFS is the ceiling, so normal readings are negative.</dd>
@@ -471,6 +496,7 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
         <dt>Phase</dt><dd>Timing at each frequency, in degrees. 360° is one full cycle at that frequency.</dd>
         <dt>Polarity</dt><dd>Whether a signal is right way up or inverted. Reversed polarity shows as a 180° phase shift at every frequency.</dd>
         <dt>Impulse response</dt><dd>How a system responds to a single click. Its peak shows the arrival time; later peaks are reflections.</dd>
+        <dt>LUFS</dt><dd>Loudness units relative to full scale: the broadcast loudness measure from ITU-R BS.1770, weighted to match how loud things sound. A 1 dB change in LUFS is a 1 dB change in level.</dd>
         <dt>Leq</dt><dd>Equivalent continuous level: the steady level with the same total energy as a fluctuating one over a period.</dd>
         <dt>A / C weighting</dt><dd>Filters on the SPL meter. A follows the ear at moderate levels; C keeps most of the bass.</dd>
         <dt>Crossover</dt><dd>The frequency range where one speaker (say, the sub) hands over to another (the main box).</dd>

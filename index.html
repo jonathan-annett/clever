@@ -147,6 +147,12 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
 .legend .cohbtn::before{content:"";display:inline-block;width:12px;height:2px;margin-right:5px;vertical-align:middle;background:currentColor}
 .legend .cohbtn b{font-weight:600}
 .legend .cohbtn:hover{text-decoration:underline}
+.pctl{display:flex;align-items:center;gap:6px}
+.pctl .hint{color:var(--faint);font-size:12px}
+.btn.mini{padding:2px 9px;font-size:12px}
+.notice{position:fixed;z-index:12;left:50%;transform:translateX(-50%);top:120px;width:min(620px,calc(100vw - 32px));background:var(--panel2);border:1px solid var(--grid2);border-left:3px solid var(--accent);border-radius:6px;padding:10px 40px 10px 14px;font-size:14px;box-shadow:0 8px 24px rgba(0,0,0,.45)}
+.notice a{color:var(--accent)}
+.notice .x{position:absolute;right:6px;top:6px;background:none;border:0;color:var(--dim);cursor:pointer;font-size:15px;padding:4px 8px}
 #scrim{position:fixed;inset:0;background:rgba(5,8,11,.6);z-index:14}
 @media (max-width:900px){
   .app{height:100dvh}
@@ -246,6 +252,17 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
         </div>
       </details>
 
+      <details open>
+        <summary>Levels</summary>
+        <div class="body">
+          <div class="row"><label for="levMetric">Method</label><select id="levMetric"><option value="lufs">LUFS short-term (3 s)</option><option value="leq">Leq 3 s (SPL weighting)</option><option value="rms">RMS 3 s (unweighted)</option></select></div>
+          <div class="row"><label for="levSpan">History</label><select id="levSpan"><option value="1">1 minute</option><option value="3">3 minutes</option><option value="10">10 minutes</option></select></div>
+          <div class="row"><label for="levRange">Range</label><select id="levRange"><option value="12">±6 dB</option><option value="24">±12 dB</option><option value="48">±24 dB</option></select></div>
+          <div class="row"><label for="levRefWin">Ref from</label><select id="levRefWin"><option value="3">Last 3 s</option><option value="10">Last 10 s</option><option value="60">Last 60 s</option></select></div>
+          <p class="note">Set the reference once the feed is at a good level, then watch the drift readout. You can also click or drag on the graph to place it. LUFS uses BS.1770 K-weighting on one channel; Leq uses the SPL meter's weighting and calibration.</p>
+        </div>
+      </details>
+
       <details>
         <summary>RTA &amp; Spectrograph</summary>
         <div class="body">
@@ -262,6 +279,10 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
             <div class="row" style="grid-template-columns:auto 1fr"><label for="specCeil">Ceiling</label><input type="number" id="specCeil" step="5"></div>
           </div>
           <p class="note">Spectrograph floor and ceiling are in dBFS.</p>
+          <div class="row2">
+            <div class="row" style="grid-template-columns:auto 1fr"><label for="bandsFloor">Bands floor</label><input type="number" id="bandsFloor" step="5"></div>
+            <div class="row" style="grid-template-columns:auto 1fr"><label for="bandsCeil">Ceiling</label><input type="number" id="bandsCeil" step="5"></div>
+          </div>
         </div>
       </details>
 
@@ -333,7 +354,9 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
     <main class="main">
       <section class="pane">
         <div class="phead">
-          <div class="tabs" id="topTabs"><button data-v="rta">RTA</button><button data-v="spec">Spectrograph</button><button data-v="ir">Impulse</button></div>
+          <div class="tabs" id="topTabs"><button data-v="rta">RTA</button><button data-v="spec">Spectrograph</button><button data-v="ir">Impulse</button><button data-v="lev">Levels</button><button data-v="bands">Bands</button></div>
+          <span class="pctl" id="levCtl" hidden><button class="btn mini primary" id="levSet" title="Set the reference from the recent average (Enter)">Set ref</button><button class="btn mini" id="levClear">Clear</button><button class="btn mini" id="levMetricBtn" title="Change loudness method (M)">LUFS</button></span>
+          <span class="pctl" id="bandsCtl" hidden><span class="hint">Tap a band label to ignore it</span><button class="btn mini" id="bandsReset">Use all bands</button></span>
           <span id="irInfo"></span><button class="btn" id="irApply" hidden style="padding:2px 8px;font-size:12px">Add to delay</button>
           <span class="ro" id="roTop"></span>
         </div>
@@ -354,6 +377,7 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
   </div>
 </div>
 <div id="scrim" hidden></div>
+<div id="legacyNote" class="notice" role="status" hidden><span id="legacyText"></span> <a id="legacyLink" href="#">Open the old version</a><button class="x" id="legacyClose" aria-label="Dismiss">✕</button></div>
 <div id="toast" role="status"></div>
 <div id="drop" hidden>Drop calibration file</div>
 
@@ -453,7 +477,18 @@ const DSP = (() => {
     for (const [f, d] of pts){ out.f.push(f); out.db.push(d); }
     return out;
   }
-  return { fft, hann, prefix, cum, gccPhat, aWeight, cWeight, interpLog, parseCal };
+  // ITU-R BS.1770 K-weighting as two biquads [b0,b1,b2,a1,a2], designed for any sample rate
+  // (pre-filter high shelf + RLB high-pass; same parameterisation as libebur128)
+  function kWeight(fs){
+    let K = Math.tan(Math.PI * 1681.974450955533 / fs), Q = 0.7071752369554196;
+    const Vh = Math.pow(10, 3.999843853973347 / 20), Vb = Math.pow(Vh, 0.4996667741545416);
+    let a0 = 1 + K / Q + K * K;
+    const s1 = [(Vh + Vb * K / Q + K * K) / a0, 2 * (K * K - Vh) / a0, (Vh - Vb * K / Q + K * K) / a0, 2 * (K * K - 1) / a0, (1 - K / Q + K * K) / a0];
+    K = Math.tan(Math.PI * 38.13547087602444 / fs); Q = 0.5003270373238773; a0 = 1 + K / Q + K * K;
+    const s2 = [1, -2, 1, 2 * (K * K - 1) / a0, (1 - K / Q + K * K) / a0];
+    return [s1, s2];
+  }
+  return { fft, hann, prefix, cum, gccPhat, aWeight, cWeight, interpLog, parseCal, kWeight };
 })();
 if (typeof module !== 'undefined') module.exports = DSP;
 </script>
@@ -472,7 +507,7 @@ const DEFAULTS = {
   genOn: false, genType: 'pink', genFreq: 1000, genLevel: -20,
   delayMs: 0,
   fftMode: 'mtw', avg: 8, smooth: 24, cohBlank: 0.5, cohView: 'lane', sideHidden: false, magRange: 20, magOffset: 0,
-  topView: 'rta', rtaBands: '3', rtaAvg: 'fast', rtaUnits: 'dbfs', rtaTop: 0, rtaSpan: 100, peakHold: true,
+  topView: 'rta', levMetric: 'lufs', levSpan: 10, levRange: 24, levRefWin: 10, levRef: {}, bandsFloor: -90, bandsCeil: -30, bandIgnore: [], rtaBands: '3', rtaAvg: 'fast', rtaUnits: 'dbfs', rtaTop: 0, rtaSpan: 100, peakHold: true,
   specFloor: -110, specCeil: -40,
   serial: '', calAngle: '0', applyCal: true, splOffset: null, weight: 'A', timeW: 'fast', calRef: 94,
   micModel: 'umik', calActive: null, layout: null,
@@ -510,6 +545,35 @@ const S = {
 const RB = 1 << 18, RBM = RB - 1;
 const ring = { ref: new Float32Array(RB), meas: new Float32Array(RB), w: 0 };
 const SPL_N = 4096;
+
+/* level history (Levels tab): fed from the audio callback so it keeps recording when the tab is hidden */
+const LEV_CAP = 6600, LEV_WIN = 30;           // 11 min of 100 ms points; 3 s window = 30 blocks
+const LEV = {
+  t: new Float64Array(LEV_CAP), k: new Float32Array(LEV_CAP), w: new Float32Array(LEV_CAP), r: new Float32Array(LEV_CAP),
+  head: 0, n: 0, f: null, z: new Float64Array(8),
+  len: 4800, cnt: 0, kAcc: 0, rAcc: 0, wE: 0, wN: 0, lastW: 0,
+  wk: new Float64Array(LEV_WIN), wr: new Float64Array(LEV_WIN), ww: new Float64Array(LEV_WIN), wi: 0, wf: 0
+};
+function levInit(){
+  LEV.f = DSP.kWeight(S.fs); LEV.z.fill(0); LEV.len = Math.round(S.fs / 10);
+  LEV.cnt = 0; LEV.kAcc = 0; LEV.rAcc = 0; LEV.wE = 0; LEV.wN = 0; LEV.wi = 0; LEV.wf = 0;
+}
+function levBlock(kms, rms){
+  const L = LEV, i = L.wi;
+  const wms = L.wN ? L.wE / L.wN : L.lastW; L.lastW = wms; L.wE = 0; L.wN = 0;
+  L.wk[i] = kms; L.wr[i] = rms; L.ww[i] = wms; L.wi = (i + 1) % LEV_WIN; L.wf = Math.min(LEV_WIN, L.wf + 1);
+  let sk = 0, sr = 0, sw = 0; for (let j = 0; j < L.wf; j++){ sk += L.wk[j]; sr += L.wr[j]; sw += L.ww[j]; }
+  const h = L.head;
+  L.t[h] = Date.now();
+  L.k[h] = -0.691 + 10 * Math.log10(sk / L.wf + 1e-20);      // short-term loudness, LUFS (mono)
+  L.r[h] = 10 * Math.log10(2 * sr / L.wf + 1e-20);           // unweighted RMS, dBFS (sine-referenced)
+  L.w[h] = 10 * Math.log10(2 * sw / L.wf + 1e-20);           // A/C/Z weighted, dBFS; SPL offset added at display time
+  L.head = (h + 1) % LEV_CAP; L.n = Math.min(LEV_CAP, L.n + 1);
+}
+
+/* third-octave band history (Bands tab) */
+const ISO_FC = [12.5, 16, 20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630, 800, 1000, 1250, 1600, 2000, 2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000, 20000];
+const BANDS = { rows: [], cap: 1500 };
 
 const css = getComputedStyle(document.documentElement);
 const C = {};
@@ -638,7 +702,7 @@ async function start(){
     if (ctx.state === 'suspended') { try { await ctx.resume(); } catch {} }
     sendGen();
     ring.w = 0; ring.ref.fill(0); ring.meas.fill(0);
-    S.spl.pos = 0; resetLeq();
+    S.spl.pos = 0; resetLeq(); levInit();
     buildAnalysis();
     S.running = true;
     keepAwake(true);
@@ -676,12 +740,23 @@ document.addEventListener('pointerdown', () => { if (S.ctx && S.ctx.state === 's
 function onAudio(e){
   const { r, m } = e.data, n = r.length, inv = P.polarity ? -1 : 1;
   let pr = 0, pm = 0;
+  const L = LEV, [f1, f2] = L.f, z = L.z;
+  let z0 = z[0], z1 = z[1], z2 = z[2], z3 = z[3], z4 = z[4], z5 = z[5], z6 = z[6], z7 = z[7];
+  let cnt = L.cnt, kAcc = L.kAcc, rAcc = L.rAcc;
   for (let i = 0; i < n; i++){
     const j = (ring.w + i) & RBM, a = r[i], b = m[i] * inv;
     ring.ref[j] = a; ring.meas[j] = b;
     const aa = a < 0 ? -a : a, bb = b < 0 ? -b : b;
     if (aa > pr) pr = aa; if (bb > pm) pm = bb;
+    // BS.1770 K-weighting on the measurement channel
+    const y = f1[0] * b + f1[1] * z0 + f1[2] * z1 - f1[3] * z2 - f1[4] * z3; z1 = z0; z0 = b; z3 = z2; z2 = y;
+    const q = y - 2 * z4 + z5 - f2[3] * z6 - f2[4] * z7; z5 = z4; z4 = y; z7 = z6; z6 = q;
+    kAcc += q * q; rAcc += b * b;
+    if (++cnt >= L.len){ levBlock(kAcc / cnt, rAcc / cnt); cnt = 0; kAcc = 0; rAcc = 0; }
   }
+  if (!(Math.abs(z2) > 1e-30)) { z0 = z1 = z2 = z3 = z4 = z5 = z6 = z7 = 0; }   // flush denormals in silence
+  z[0] = z0; z[1] = z1; z[2] = z2; z[3] = z3; z[4] = z4; z[5] = z5; z[6] = z6; z[7] = z7;
+  L.cnt = cnt; L.kAcc = kAcc; L.rAcc = rAcc;
   ring.w += n;
   const now = performance.now(), M = S.meter;
   M.ref.pk = Math.max(pr, M.ref.pk); M.meas.pk = Math.max(pm, M.meas.pk);
@@ -756,7 +831,7 @@ function analyze(dt){
     DSP.prefix(a.gxx, a.cXX, M); DSP.prefix(a.gyy, a.cYY, M);
     DSP.prefix(a.coh, a.cCoh, M); DSP.prefix(a.rta, a.cRta, M); DSP.prefix(a.inst, a.cInst, M);
   }
-  computeTF(); computeRTA(dt); computeSpecRow();
+  computeTF(); computeRTA(dt); computeSpecRow(); pushBandsRow();
   if (P.topView === 'ir') computeIR();
   return true;
 }
@@ -883,6 +958,7 @@ function splBlock(pos){
   for (let i = 0; i < N; i++){ re[i] = ring.meas[(pos + i) & RBM]; im[i] = 0; }
   DSP.fft(re, im, false);
   let ms = 0; for (let k = 1; k <= N / 2; k++) ms += (re[k] * re[k] + im[k] * im[k]) * w[k];
+  LEV.wE += ms * N; LEV.wN += N;
   const dt = N / S.fs, tau = P.timeW === 'slow' ? 1 : 0.125, sp = S.spl;
   sp.lev += (ms - sp.lev) * (1 - Math.exp(-dt / tau));
   sp.E += ms * dt; sp.T += dt;
@@ -1160,10 +1236,198 @@ function drawIR(F){
   $('#irApply').hidden = Math.abs(resid) < 0.02;
   return '';
 }
+/* ---------------- Levels view ---------------- */
+const TOP_VIEWS = ['rta', 'spec', 'ir', 'lev', 'bands'];
+const TOP_NAMES = { rta: 'RTA', spec: 'Spectrograph', ir: 'Impulse', lev: 'Levels', bands: 'Bands' };
+const LEV_METRICS = ['lufs', 'leq', 'rms'];
+const levArr = () => P.levMetric === 'leq' ? LEV.w : P.levMetric === 'rms' ? LEV.r : LEV.k;
+const levOff = () => P.levMetric === 'leq' ? splOffset() : 0;
+const levUnit = () => P.levMetric === 'lufs' ? 'LUFS' : P.levMetric === 'rms' ? 'dBFS' : 'dB' + P.weight;
+const levShort = () => P.levMetric === 'lufs' ? 'LUFS' : P.levMetric === 'rms' ? 'RMS' : 'L' + P.weight + 'eq';
+const levIdx = j => (LEV.head - j + LEV_CAP) % LEV_CAP;   // j = 1 is the newest point
+function levRefRaw(){ const v = P.levRef && P.levRef[P.levMetric]; return typeof v === 'number' && isFinite(v) ? v : null; }
+function levMean(sec){
+  if (!LEV.n) return null;
+  const arr = levArr(), tEnd = LEV.t[levIdx(1)]; let e = 0, c = 0;
+  for (let j = 1; j <= LEV.n; j++){ const i = levIdx(j); if (tEnd - LEV.t[i] > sec * 1000) break; e += Math.pow(10, arr[i] / 10); c++; }
+  return c ? 10 * Math.log10(e / c) : null;
+}
+function levSetRef(raw){ P.levRef = Object.assign({}, P.levRef, { [P.levMetric]: raw }); changed(); }
+function levSetFromRecent(){
+  const v = levMean(+P.levRefWin);
+  if (v == null){ toast('Start the analyzer and let some level build up first.'); return; }
+  levSetRef(v); toast(`Reference set to ${(v + levOff()).toFixed(1)} ${levUnit()} (last ${P.levRefWin} s)`);
+}
+function levClearRef(){ const r = Object.assign({}, P.levRef); delete r[P.levMetric]; P.levRef = r; changed(); }
+function cycleLevMetric(){ P.levMetric = LEV_METRICS[(LEV_METRICS.indexOf(P.levMetric) + 1) % LEV_METRICS.length]; changed(); toast('Level method: ' + levShort(), 1200); }
+function levYRange(){
+  if (S.levDrag) return S.levDrag;
+  const R = +P.levRange, off = levOff(), ref = levRefRaw();
+  if (ref != null) return { top: ref + off + R / 2, bot: ref + off - R / 2 };
+  const arr = levArr(), span = P.levSpan * 60000; let mx = -Infinity;
+  if (LEV.n){ const tEnd = LEV.t[levIdx(1)]; for (let j = 1; j <= LEV.n; j++){ const i = levIdx(j); if (tEnd - LEV.t[i] > span) break; if (arr[i] > mx) mx = arr[i]; } }
+  mx = isFinite(mx) ? mx + off : (P.levMetric === 'leq' ? 90 : -20);
+  const step = R <= 12 ? 2 : R <= 24 ? 3 : 6, top = Math.ceil((mx + R * 0.12) / step) * step;
+  return { top, bot: top - R };
+}
+function drawLevels(F){
+  const g = F.g, R = +P.levRange, off = levOff(), unit = levUnit(), ref = levRefRaw();
+  const { top, bot } = levYRange(); S.levMap = { y0: F.y0, y1: F.y1, top, bot };
+  const yOf = v => F.y1 - (v - bot) / (top - bot) * (F.y1 - F.y0);
+  const span = P.levSpan * 60000, last = LEV.n ? levIdx(1) : -1;
+  const tNow = S.running ? Date.now() : (last >= 0 ? LEV.t[last] : Date.now());
+  const xOf = t => F.x1 - (tNow - t) / span * (F.x1 - F.x0);
+  // time grid
+  const tick = P.levSpan >= 10 ? 60000 : P.levSpan >= 3 ? 30000 : 10000;
+  g.font = `11px ${MONO}`; g.textAlign = 'center'; g.textBaseline = 'top';
+  const pxPerTick = tick / span * (F.x1 - F.x0), every = Math.max(1, Math.ceil(64 / pxPerTick));
+  for (let d = 0, n = 0; d <= span + 1; d += tick, n++){
+    const x = Math.round(xOf(tNow - d)) + 0.5;
+    g.strokeStyle = d === 0 ? C.grid2 : C.grid; g.beginPath(); g.moveTo(x, F.y0); g.lineTo(x, F.y1); g.stroke();
+    if (n % every === 0 && (d === 0 || span - d >= tick * every * 0.6 || d === span)){
+      g.fillStyle = C.dim; g.fillText(d === 0 ? 'now' : '−' + (d >= 60000 ? d / 60000 + ' min' : d / 1000 + ' s'), Math.min(F.x1 - 14, Math.max(F.x0 + 18, x)), F.y1 + 4);
+    }
+  }
+  const step = R <= 12 ? 2 : R <= 24 ? 3 : 6;
+  yGrid(F, bot, top, step, v => (Math.round(v * 10) / 10).toString());
+  clip(F);
+  if (ref != null){
+    const yr = yOf(ref + off);
+    g.fillStyle = C.ok; g.globalAlpha = 0.07; g.fillRect(F.x0, yOf(ref + off + 1), F.x1 - F.x0, yOf(ref + off - 1) - yOf(ref + off + 1)); g.globalAlpha = 1;
+    g.strokeStyle = C.accent; g.lineWidth = 1.5; g.setLineDash([6, 4]); g.beginPath(); g.moveTo(F.x0, yr); g.lineTo(F.x1, yr); g.stroke(); g.setLineDash([]);
+  }
+  // one column per pixel: energy mean as the trace, min to max as a faint envelope
+  const arr = levArr(), cols = []; let cur = null, prevT = null;
+  for (let j = 1; j <= LEV.n; j++){
+    const i = levIdx(j), t = LEV.t[i]; if (tNow - t > span) break;
+    const x = Math.floor(xOf(t)), v = arr[i] + off, gap = prevT != null && prevT - t > 1000; prevT = t;
+    if (!cur || cur.x !== x || gap){ if (cur) cols.push(cur); cur = { x, e: 0, c: 0, mn: v, mx: v, gap }; }
+    cur.e += Math.pow(10, v / 10); cur.c++; if (v < cur.mn) cur.mn = v; if (v > cur.mx) cur.mx = v;
+  }
+  if (cur) cols.push(cur);
+  if (cols.length){
+    g.strokeStyle = C.live; g.globalAlpha = 0.28; g.lineWidth = 1; g.beginPath();
+    for (const c of cols) if (c.mx - c.mn > 0.05){ g.moveTo(c.x + 0.5, yOf(c.mx)); g.lineTo(c.x + 0.5, yOf(c.mn)); }
+    g.stroke(); g.globalAlpha = 1;
+    const segs = []; let sg = [];
+    for (const c of cols){ c.v = 10 * Math.log10(c.e / c.c); sg.push(c); if (c.gap){ segs.push(sg); sg = []; } }
+    segs.push(sg);
+    for (const seg of segs){
+      if (!seg.length) continue;
+      g.beginPath(); g.moveTo(seg[0].x + 0.5, F.y1);
+      for (const c of seg) g.lineTo(c.x + 0.5, yOf(c.v));
+      g.lineTo(seg[seg.length - 1].x + 0.5, F.y1); g.closePath();
+      g.fillStyle = C.live; g.globalAlpha = 0.12; g.fill(); g.globalAlpha = 1;
+      g.beginPath(); seg.forEach((c, k) => k ? g.lineTo(c.x + 0.5, yOf(c.v)) : g.moveTo(c.x + 0.5, yOf(c.v)));
+      g.strokeStyle = C.live; g.lineWidth = 1.8; g.stroke();
+    }
+  }
+  hoverX(F);
+  g.restore();
+  // big readout
+  const curV = last >= 0 ? arr[last] + off : null, bx = F.x0 + 10, by = F.y0 + 10;
+  g.fillStyle = C.bg; g.globalAlpha = 0.78; g.fillRect(bx, by, 210, ref != null ? 84 : 58); g.globalAlpha = 1;
+  g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+  g.fillStyle = C.fg; g.font = `600 30px ${MONO}`; const vs = curV == null ? '--.-' : curV.toFixed(1); g.fillText(vs, bx + 10, by + 36);
+  const vw = g.measureText(vs).width;
+  g.fillStyle = C.dim; g.font = `12px ${MONO}`; g.fillText(unit, bx + 10 + vw + 6, by + 36);
+  g.fillText(levShort() + ' · ' + (levShort() === 'LUFS' ? 'short-term' : '3 s'), bx + 10, by + 52);
+  if (ref != null && curV != null){
+    const d = curV - (ref + off), ad = Math.abs(d);
+    g.font = `600 22px ${MONO}`; g.fillStyle = ad <= 1 ? C.ok : ad <= 3 ? C.accent : C.clip;
+    g.fillText((d >= 0 ? '+' : '−') + ad.toFixed(1) + ' dB', bx + 10, by + 76);
+    g.font = `12px ${MONO}`; g.fillStyle = C.dim; g.fillText('vs ref', bx + 130, by + 76);
+  }
+  // readout line
+  let ro = ref != null ? `ref ${(ref + off).toFixed(1)} ${unit}` : 'no reference: press Set ref or click the graph';
+  if (S.hoverX != null && S.hoverX > F.x0 && S.hoverX < F.x1 && cols.length){
+    const c = cols.reduce((b, c) => Math.abs(c.x - S.hoverX) < Math.abs(b.x - S.hoverX) ? c : b);
+    const ago = (F.x1 - c.x) / (F.x1 - F.x0) * span / 1000;
+    ro = `−${ago >= 60 ? (ago / 60).toFixed(1) + ' min' : ago.toFixed(0) + ' s'}  ${c.v.toFixed(1)} ${unit}` + (ref != null ? `  (${c.v - ref - off >= 0 ? '+' : ''}${(c.v - ref - off).toFixed(1)} dB)` : '');
+  }
+  return ro;
+}
+function hoverX(F){
+  if (S.hoverX == null || S.hoverX < F.x0 || S.hoverX > F.x1) return;
+  const g = F.g, x = Math.round(S.hoverX) + 0.5;
+  g.strokeStyle = C.faint; g.setLineDash([3, 3]); g.beginPath(); g.moveTo(x, F.y0); g.lineTo(x, F.y1); g.stroke(); g.setLineDash([]);
+}
+
+/* ---------------- Bands view ---------------- */
+const bandLabel = f => f < 1000 ? String(f) : String(f / 1000).replace(/^(\d+)\.(\d+)$/, '$1k$2').replace(/^(\d+)$/, '$1k');
+function pushBandsRow(){
+  if (!S.accs.length) return;
+  const n = ISO_FC.length, v = new Float32Array(n), h = Math.pow(2, 1 / 6), cum = DSP.cum, nyq = S.fs / 2;
+  for (let i = 0; i < n; i++){
+    const fc = ISO_FC[i];
+    if (fc * h > nyq * 1.02){ v[i] = NaN; continue; }
+    const a = accFor(fc), M = a.M, k = fc * a.N / S.fs;
+    let lo = fc / h * a.N / S.fs, hi = Math.min(fc * h, nyq) * a.N / S.fs, p;
+    if (hi - lo < 1) p = (cum(a.cRta, k + 0.5, M) - cum(a.cRta, k - 0.5, M)) * (hi - lo);
+    else p = cum(a.cRta, hi, M) - cum(a.cRta, lo, M);
+    v[i] = 10 * Math.log10(a.scale * p + 1e-20) - calAt(fc);
+  }
+  BANDS.rows.push({ t: performance.now(), v });
+  if (BANDS.rows.length > BANDS.cap) BANDS.rows.splice(0, BANDS.rows.length - BANDS.cap);
+}
+function bandIgnored(i){ return !!(P.bandIgnore && P.bandIgnore[i]); }
+function drawBands(F){
+  const g = F.g, n = ISO_FC.length, colW = (F.x1 - F.x0) / n, lo = +P.bandsFloor, hi = +P.bandsCeil;
+  S.bandsMap = { x0: F.x0, x1: F.x1, y1: F.y1, n };
+  const rowH = 2, rows = BANDS.rows, vis = Math.floor((F.y1 - F.y0) / rowH), start = Math.max(0, rows.length - vis);
+  // column guides
+  g.strokeStyle = C.grid; g.lineWidth = 1; g.beginPath();
+  for (let i = 0; i <= n; i++){ const x = Math.round(F.x0 + i * colW) + 0.5; g.moveTo(x, F.y0); g.lineTo(x, F.y1); }
+  g.stroke();
+  clip(F);
+  const norm = d => Math.max(0, Math.min(1, (d - lo) / (hi - lo)));
+  let hotNow = -1;
+  const bars = [[], [], []];   // normal, ignored, hot
+  for (let r = start; r < rows.length; r++){
+    const v = rows[r].v, y = F.y1 - (rows.length - r) * rowH;
+    let hot = -1, hv = -Infinity;
+    for (let i = 0; i < n; i++) if (!bandIgnored(i) && isFinite(v[i]) && v[i] > hv){ hv = v[i]; hot = i; }
+    if (r === rows.length - 1) hotNow = hot;
+    for (let i = 0; i < n; i++){
+      if (!isFinite(v[i])) continue;
+      const w = norm(v[i]) * colW * 0.9; if (w < 0.5) continue;
+      bars[bandIgnored(i) ? 1 : i === hot ? 2 : 0].push(F.x0 + (i + 0.5) * colW - w / 2, y, w);
+    }
+  }
+  const paint = (list, color, alpha) => { g.fillStyle = color; g.globalAlpha = alpha; for (let k = 0; k < list.length; k += 3) g.fillRect(list[k], list[k + 1], list[k + 2], rowH); g.globalAlpha = 1; };
+  paint(bars[0], C.live, 0.85); paint(bars[1], C.faint, 0.6); paint(bars[2], C.clip, 1);
+  g.restore();
+  // time axis
+  g.fillStyle = C.dim; g.font = `11px ${MONO}`; g.textAlign = 'right'; g.textBaseline = 'bottom';
+  g.fillText('now', F.x0 - 6, F.y1);
+  if (rows.length > 1){
+    const oldest = rows[start], secs = (rows[rows.length - 1].t - oldest.t) / 1000;
+    g.textBaseline = 'top'; if (rows.length >= vis) g.fillText('−' + secs.toFixed(0) + 's', F.x0 - 6, F.y0);
+  }
+  // band labels (tap to ignore)
+  const rot = colW < 28;
+  g.font = `${rot ? 10 : 11}px ${MONO}`;
+  for (let i = 0; i < n; i++){
+    const cx = F.x0 + (i + 0.5) * colW, ign = bandIgnored(i);
+    g.fillStyle = ign ? C.faint : i === hotNow ? C.clip : C.dim;
+    const t = (ign ? '× ' : '') + bandLabel(ISO_FC[i]);
+    if (rot){ g.save(); g.translate(cx, F.y1 + 4); g.rotate(-Math.PI / 2); g.textAlign = 'right'; g.textBaseline = 'middle'; g.fillText(t, 0, 0); g.restore(); }
+    else { g.textAlign = 'center'; g.textBaseline = 'top'; g.fillText(t, cx, F.y1 + 5); }
+  }
+  const last = rows.length ? rows[rows.length - 1].v : null;
+  if (S.hoverX != null && S.hoverX > F.x0 && S.hoverX < F.x1 && last){
+    const i = Math.min(n - 1, Math.floor((S.hoverX - F.x0) / colW));
+    return `${bandLabel(ISO_FC[i])} Hz  ${isFinite(last[i]) ? last[i].toFixed(1) + ' dBFS' : '—'}${bandIgnored(i) ? '  (ignored)' : ''}`;
+  }
+  return hotNow >= 0 && last ? `hot: ${bandLabel(ISO_FC[hotNow])} Hz  ${last[hotNow].toFixed(1)} dBFS` : '';
+}
+
 function drawTop(){
-  const F = frame($('#cvTop')); let ro = '';
+  const F = frame($('#cvTop'), P.topView === 'bands' ? { l: 46, r: 34, t: 8, b: 36 } : undefined); let ro = '';
   if (P.topView === 'rta') ro = drawRTA(F);
   else if (P.topView === 'spec') ro = drawSpec(F);
+  else if (P.topView === 'lev') ro = drawLevels(F);
+  else if (P.topView === 'bands') ro = drawBands(F);
   else ro = drawIR(F);
   if (P.topView !== 'ir'){ $('#irInfo').textContent = ''; $('#irApply').hidden = true; }
   $('#roTop').textContent = ro;
@@ -1367,7 +1631,7 @@ const ACTIONS = [
   { k: () => onKey('DELAY', '−0.1', 'ms'), press: () => setDelay(P.delayMs - 0.1) },
   { k: () => onKey('DELAY', '+0.1', 'ms'), press: () => setDelay(P.delayMs + 0.1) },
   // row 2 · analysis
-  { k: () => onKey('TOP VIEW', { rta: 'RTA', spec: 'SPECT', ir: 'IMPULSE' }[P.topView], 'cycle'), press: () => { P.topView = cyc(['rta', 'spec', 'ir'], P.topView); changed(); } },
+  { k: () => onKey('TOP VIEW', { rta: 'RTA', spec: 'SPECT', ir: 'IMPULSE', lev: 'LEVELS', bands: 'BANDS' }[P.topView], 'cycle'), press: () => { P.topView = cyc(TOP_VIEWS, P.topView); changed(); } },
   { k: () => onKey('RTA', P.rtaBands === 'line' ? 'LINE' : '1/' + P.rtaBands, 'bands'), press: () => { P.rtaBands = cyc(['line', '1', '3', '6', '12', '24'], P.rtaBands); buildRtaBands(); changed(); } },
   { k: () => onKey('SMOOTH', SMOOTH_LBL[P.smooth], 'octave'), press: () => { P.smooth = +cyc([0, 48, 24, 12, 6, 3, 1], P.smooth); changed(); } },
   { k: () => onKey('AVERAGE', P.avg == 0 ? 'INF' : String(P.avg), 'frames'), press: () => { P.avg = +cyc([1, 2, 4, 8, 16, 32, 0], P.avg); changed(); } },
@@ -1535,7 +1799,10 @@ function syncUI(){
   $('#sideToggle').setAttribute('aria-pressed', String(!P.sideHidden));
   $('#cohBtnLbl').textContent = COH_LABEL[P.cohView] || 'Lane';
   set('cohView', P.cohView);
-  $('#layoutBtn').textContent = P.layout === 'rta' ? 'ALL PANES' : 'RTA ONLY';
+  $('#layoutBtn').textContent = P.layout === 'rta' ? 'ALL PANES' : (TOP_NAMES[P.topView] || 'RTA').toUpperCase() + ' ONLY';
+  $('#levCtl').hidden = P.topView !== 'lev'; $('#bandsCtl').hidden = P.topView !== 'bands';
+  $('#levMetricBtn').textContent = levShort() + ' ▸';
+  ['levMetric', 'levSpan', 'levRange', 'levRefWin', 'bandsFloor', 'bandsCeil'].forEach(k => set(k, P[k]));
   const okSerial = serialDigits().length === 7;
   $('#calLink').hidden = !okSerial;
   if (okSerial){ const u = calURL(); $('#calLinkA').href = u; $('#calLinkA').textContent = u.split('/').pop(); }
@@ -1546,7 +1813,7 @@ function syncUI(){
   $('#topGen').textContent = 'GEN ' + (P.genOn ? P.genType.toUpperCase() + ' ' + P.genLevel : 'OFF'); $('#topGen').classList.toggle('on', !!P.genOn);
   $('#runBtn').textContent = S.starting ? 'Starting…' : S.running ? 'Stop' : 'Start'; $('#runBtn').classList.toggle('on', S.running);
   $('#brand').classList.toggle('on', S.running);
-  $('#idle1').hidden = S.running;
+  $('#idle1').hidden = S.running || (P.topView === 'lev' && LEV.n > 0) || (P.topView === 'bands' && BANDS.rows.length > 0);
   const m = P.delayMs * 0.343;
   $('#delayBig').innerHTML = `${P.delayMs.toFixed(2)} ms <small>${m.toFixed(2)} m · ${(m * 3.28084).toFixed(1)} ft</small>`;
   $('#topDelay').textContent = P.delayMs.toFixed(2) + ' ms';
@@ -1583,6 +1850,16 @@ bind('avg', 'avg', { num: true });
 bind('smooth', 'smooth', { num: true });
 bind('cohBlank', 'cohBlank', { num: true });
 bind('cohView', 'cohView');
+bind('levMetric', 'levMetric');
+bind('levSpan', 'levSpan', { num: true });
+bind('levRange', 'levRange', { num: true });
+bind('levRefWin', 'levRefWin', { num: true });
+bind('bandsFloor', 'bandsFloor', { num: true });
+bind('bandsCeil', 'bandsCeil', { num: true });
+$('#levSet').onclick = levSetFromRecent;
+$('#levClear').onclick = levClearRef;
+$('#levMetricBtn').onclick = cycleLevMetric;
+$('#bandsReset').onclick = () => { P.bandIgnore = []; changed(); };
 bind('magRange', 'magRange', { num: true });
 bind('magOffset', 'magOffset', { num: true });
 bind('rtaBands', 'rtaBands', { after: buildRtaBands });
@@ -1654,7 +1931,7 @@ $('#fsBtn').hidden = !document.fullscreenEnabled;
 document.addEventListener('fullscreenchange', () => { S.dirty = true; });
 $('#cohBtn').onclick = cycleCohView;
 $('#scrim').onclick = () => drawer(false);
-function toggleLayout(){ P.layout = P.layout === 'rta' ? 'full' : 'rta'; if (P.layout === 'rta') P.topView = 'rta'; changed(); }
+function toggleLayout(){ P.layout = P.layout === 'rta' ? 'full' : 'rta'; changed(); }
 $('#layoutBtn').onclick = toggleLayout;
 $('#irApply').onclick = () => { if (S.ir) setDelay(P.delayMs + S.ir.peakMs); };
 document.querySelectorAll('#topTabs button').forEach(b => b.onclick = () => { P.topView = b.dataset.v; changed(); });
@@ -1665,16 +1942,40 @@ for (const id of ['#cvTop', '#cvPhase', '#cvMag']){
   const pick = e => {
     if (id === '#cvTop' && P.topView === 'ir') return;
     const r = cv.getBoundingClientRect(), x = e.clientX - r.left;
+    if (id === '#cvTop'){ S.hoverX = x; if (P.topView === 'lev' || P.topView === 'bands'){ S.dirty = true; return; } }
     S.hoverF = (x < 46 || x > r.width - 34) ? null : xf({ x0: 46, x1: r.width - 34 }, x); S.dirty = true;
   };
   cv.addEventListener('pointermove', pick);
   cv.addEventListener('pointerdown', pick); // touch: tap to read, tap the margin to clear
-  cv.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse'){ S.hoverF = null; S.dirty = true; } });
+  cv.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse'){ S.hoverF = null; S.hoverX = null; S.dirty = true; } });
 }
+// Levels: click or drag on the graph to place the reference. Bands: tap a label to ignore that band.
+(() => {
+  const cv = $('#cvTop');
+  const levAt = e => {
+    const m = S.levMap, r = cv.getBoundingClientRect(), y = e.clientY - r.top;
+    if (!m || y < m.y0 || y > m.y1) return null;
+    return m.bot + (m.y1 - y) / (m.y1 - m.y0) * (m.top - m.bot);
+  };
+  cv.addEventListener('pointerdown', e => {
+    if (P.topView === 'lev'){
+      const v = levAt(e); if (v == null) return;
+      S.levDrag = levYRange(); levSetRef(v - levOff()); cv.setPointerCapture?.(e.pointerId);
+    } else if (P.topView === 'bands' && S.bandsMap){
+      const m = S.bandsMap, r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+      if (y < m.y1 || x < m.x0 || x > m.x1) return;
+      const i = Math.min(m.n - 1, Math.floor((x - m.x0) / ((m.x1 - m.x0) / m.n)));
+      const ig = ISO_FC.map((_, k) => bandIgnored(k)); ig[i] = !ig[i]; P.bandIgnore = ig; changed();
+    }
+  });
+  cv.addEventListener('pointermove', e => { if (S.levDrag && (e.buttons & 1)){ const v = levAt(e); if (v != null){ P.levRef = Object.assign({}, P.levRef, { [P.levMetric]: v - levOff() }); S.dirty = true; } } });
+  const end = () => { if (S.levDrag){ S.levDrag = null; changed(); } };
+  cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
+})();
 
 // keyboard
 document.addEventListener('keydown', e => {
-  if (e.target.matches('input,select,textarea') || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.target.matches('input,select,textarea,button') || e.metaKey || e.ctrlKey || e.altKey) return;
   const k = e.key.toLowerCase();
   if (k === ' '){ e.preventDefault(); toggleRun(); }
   else if (k === 'g') toggleGen();
@@ -1685,7 +1986,9 @@ document.addEventListener('keydown', e => {
   else if (k === 's') toggleSide();
   else if (k === 'f') toggleFullscreen();
   else if (k === 'k') cycleCohView();
-  else if (k === '1' || k === '2' || k === '3'){ P.topView = ['rta', 'spec', 'ir'][+k - 1]; changed(); }
+  else if (k >= '1' && k <= '5'){ P.topView = TOP_VIEWS[+k - 1]; changed(); }
+  else if (k === 'm') cycleLevMetric();
+  else if (k === 'enter' && P.topView === 'lev') levSetFromRecent();
 });
 
 // drag & drop
@@ -1704,7 +2007,33 @@ window.addEventListener('drop', e => {
 window.addEventListener('resize', () => { S.dirty = true; drawCalPlot(); });
 
 // boot
-S.fs = +P.fs; buildAnalysis();
+S.fs = +P.fs; buildAnalysis(); levInit();
+// bring over the band ignore list from the old audiogeek analyzer (same origin, same 33 bands)
+if (!(P.bandIgnore && P.bandIgnore.length)){
+  try { const old = JSON.parse(localStorage.getItem('ignoreBars') || 'null'); if (Array.isArray(old) && old.length === ISO_FC.length) P.bandIgnore = old.map(Boolean); } catch {}
+}
+// deep links: ?view=levels|bands|rta|spec|ir (or #levels), and ?from=levels|analyzer for people arriving from the old pages
+const LEGACY = {
+  levels:   { view: 'lev',   text: 'The audiogeek levels monitor has moved into clever: this is the Levels tab.', old: '/legacy/levels.html' },
+  analyzer: { view: 'bands', text: 'The audiogeek analyzer has moved into clever: this is the Bands tab.', old: '/legacy/' }
+};
+(() => {
+  const qs = new URLSearchParams(location.search), alias = { rta: 'rta', spec: 'spec', spectrograph: 'spec', ir: 'ir', impulse: 'ir', lev: 'lev', levels: 'lev', bands: 'bands' };
+  const want = alias[(qs.get('view') || location.hash.slice(1)).toLowerCase()];
+  if (want) P.topView = want;
+  const from = qs.get('from'), L = LEGACY[from];
+  if (L){
+    P.topView = L.view; P.layout = 'rta'; P.sideHidden = true;
+    if (!store.get('ca.legacy.' + from, false)){
+      $('#legacyText').textContent = L.text; $('#legacyLink').href = L.old; $('#legacyNote').hidden = false;
+      const place = () => { const h = document.querySelector('.main .phead'); if (h) $('#legacyNote').style.top = Math.round(h.getBoundingClientRect().bottom + 10) + 'px'; };
+      requestAnimationFrame(place); window.addEventListener('resize', place);
+      $('#legacyClose').onclick = () => { $('#legacyNote').hidden = true; store.set('ca.legacy.' + from, true); };
+    }
+    setTimeout(() => start(), 300);   // the old pages opened the mic straight away
+  }
+  if (want || L){ save(); try { history.replaceState(null, '', location.pathname); } catch {} }
+})();
 syncUI(); renderTraces(); renderCalInfo(); refreshDevices().catch(() => {});
 if (!('hid' in navigator)){
   $('#topDeck').hidden = true;

@@ -11,6 +11,7 @@ The owner is a live sound engineer. He tests on real gear at venues, so anything
 | `index.html` | The whole app: HTML, CSS and two inline scripts. No build step, no dependencies. |
 | `guide.html` | User guide for people new to measurement. Linked from the ? button and the About section. Keep it in step with UI labels when they change. |
 | `guide.m4a` | Audio overview of the guide (NotebookLM). Lives only on the server; listed in `.gitignore` because it is too big for the repo. The guide links to it, and the service worker skips media requests. |
+| `redirects/` | Stubs and instructions for sending the old audiogeek pages (`/` and `/levels.html` on the site root) to clever's Bands and Levels tabs. Not used by clever itself. |
 | `sw.js` | Service worker. Network first with a 4 s timeout, cache fallback for offline use at venues. |
 | `manifest.webmanifest` | Home-screen install (name "clever by audiogeek", short name "clever"). |
 | `icon-*.png` | App icons (192, 512, maskable 512). |
@@ -22,7 +23,7 @@ Keep it a single self-contained page. Don't add a bundler, framework or npm depe
 - Served by the owner's Node/Express server as static files under `/clever/`, over HTTPS. Mic access and WebHID require HTTPS.
 - The server folder is a git clone of this repo. The owner deploys by running `git pull` on the server, usually over SSH from Termux on his phone. There is no CI.
 - All paths are relative (manifest `start_url` and `scope` are `./`, the service worker is registered as `sw.js`). Keep them relative so the app works in any subfolder.
-- When you change cached assets, bump `CACHE` in `sw.js` (currently `clever-v5`) so installed copies refresh.
+- When you change cached assets, bump `CACHE` in `sw.js` (currently `clever-v6`) so installed copies refresh.
 - Commit and push to `main`, then tell the owner to pull.
 
 ## Code map (`index.html`)
@@ -36,6 +37,9 @@ Keep it a single self-contained page. Don't add a bundler, framework or npm depe
    - **analysis**: ring buffers of 2^18 samples. Multi-time-window FFT sizes are 16k down to 512 at 48 kHz (doubled at 88.2 kHz and above). The `MTW_BOUNDS` crossovers are 200, 400, 800, 1600 and 3200 Hz. Cross-spectra are averaged per size. A residual sub-sample delay is applied as a phase rotation. Smoothing is complex smoothing over fractional-octave bands via prefix sums. The display grid is 1/48 octave, 18 Hz to 22 kHz.
    - **delay finder**: GCC-PHAT over 65536 samples with parabolic interpolation. A confidence ratio below 8 is rejected. Negative delays delay the measurement instead of the reference.
    - **SPL**: 4096-sample non-overlapping blocks, frequency-domain weighting including mic cal correction, Fast and Slow exponential time weighting, Leq and Max.
+   - **levels**: `LEV` ring buffer of 100 ms points (11 min) filled from `onAudio`, so it keeps recording while other tabs show. Per sample: BS.1770 K-weighting (`DSP.kWeight`, verified: 1 kHz 0 dBFS sine = −3.00 LUFS). Per 100 ms block: K-weighted, unweighted and SPL-weighted mean squares (the weighted one comes from `splBlock`), each averaged over a 3 s window and stored as LUFS, dBFS and weighted dBFS (SPL offset added at display time). `P.levRef` holds one reference per method; the drift readout is current minus reference. Click or drag on the graph sets the reference (`S.levDrag` freezes the y-range while dragging).
+   - **bands**: `BANDS.rows` keeps 1500 rows of the 33 ISO third-octave band levels (12.5 Hz–20 kHz), pushed each analysis tick from the response-averaged spectrum. `drawBands()` redraws from history every frame. Loudest non-ignored band is the hot zone. `P.bandIgnore` is imported once from the old analyzer's `ignoreBars` localStorage key (same origin, same band list).
+   - **top views**: `TOP_VIEWS` = rta, spec, ir, lev, bands (keys 1–5). Deep links: `?view=levels|bands|…`; `?from=levels|analyzer` opens the matching tab full screen, starts the mic and shows the dismissible legacy banner (`LEGACY` table near the end of the script holds the old-version links, `/legacy/…`). Dismissal is stored as `ca.legacy.<from>`.
    - **plotting**: canvas plots on a log-frequency axis (20 Hz to 20 kHz). `drawMag()` has five coherence views in `COH_VIEWS` (`P.cohView`, key K): lane (default, own strip at the top), overlay, mist (red haze where coherence is poor), fade (live trace alpha follows coherence) and off. These are on trial: the owner will pick a favourite and the rest can be removed. The `loop()` analysis and render runs on `requestAnimationFrame` at about 13 Hz, so it pauses when the tab is hidden.
    - **calibration**: mic profiles live in `CALS` (localStorage key `ca.cals`), each with its own `splOffset`. `autoPickCal()` matches the input device label (`/umik/`, `/imm-?6|dayton/`).
    - **traces**: `TRACES` (key `ca.traces`), CSV import and export.
@@ -77,7 +81,7 @@ Untested on real hardware: the Stream Deck XL, the iMM-6C on the Galaxy Z Fold 7
 Gaps against Smaart Live, roughly in the owner's priority order:
 
 1. Multiple simultaneous measurements, and averaging traces from several mic positions into one.
-2. SPL history graph with rolling LAeq (1, 10, 15 min), LCpeak and logging.
+2. SPL history: the Levels tab covers 10 minutes with LUFS, 3 s Leq and RMS. Still missing: rolling LAeq over 1/10/15 min, LCpeak, and logging to file.
 3. Continuous live delay tracking.
 4. Per-trace offset and invert, and trace subtraction (for example against a target curve).
 5. Impulse response with ETC and log views, RT60, T20, T30, C50 and C80, plus sweep and periodic pink generator signals.
