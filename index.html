@@ -196,6 +196,7 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
     <div class="meters">
       <div class="meter" id="mtMeas"><span>MEAS</span><span class="bar"><b></b></span><span>–∞</span></div>
       <div class="meter" id="mtRef"><span>REF</span><span class="bar"><b></b></span><span>–∞</span></div>
+      <div class="meter" id="mtAux" hidden><span>SOLO</span><span class="bar"><b></b></span><span>–∞</span></div>
     </div>
     <div class="chip tf">Delay<strong id="topDelay">0.00 ms</strong></div>
     <button class="chipbtn" id="layoutBtn" title="L">RTA ONLY</button>
@@ -218,6 +219,7 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
           <div class="row"><label for="measCh">Meas channel</label><select id="measCh"><option value="0">Channel 1</option><option value="1">Channel 2</option></select></div>
           <div class="row"><label for="refDev">Reference</label><select id="refDev"></select></div>
           <div class="row" id="refChRow"><label for="refCh">Ref channel</label><select id="refCh"><option value="0">Channel 1</option><option value="1">Channel 2</option><option value="sum">L+R (mono sum)</option></select></div>
+          <label class="check" id="refAuxRow"><input type="checkbox" id="refAux">Other channel is a second input (e.g. the desk's solo bus)</label>
           <div id="thruBox" style="display:grid;gap:9px">
             <label class="check"><input type="checkbox" id="thru">Pass the reference through to the output</label>
             <div class="row" id="thruLevelRow"><label for="thruLevel">Thru level <span class="readout" id="thruLevelV"></span></label><input type="range" id="thruLevel" min="-40" max="6" step="0.5"></div>
@@ -246,7 +248,7 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
       <details open>
         <summary>Voice</summary>
         <div class="body">
-          <div class="row"><label for="voiceSrc">Source</label><select id="voiceSrc"><option value="ref">Reference input</option><option value="meas">Measurement mic</option></select></div>
+          <div class="row"><label for="voiceSrc">Source</label><select id="voiceSrc"><option value="aux">Solo (2nd ref channel)</option><option value="ref">Reference input</option><option value="meas">Measurement mic</option></select></div>
           <div class="row"><label for="voiceTau">Average over</label><select id="voiceTau"><option value="10">Last 10 s of speech</option><option value="30">Last 30 s of speech</option><option value="0">Everything since New talker</option></select></div>
           <div class="row"><label for="voiceGate">Speech gate</label><input type="number" id="voiceGate" step="1"></div>
           <div class="btns"><button class="btn" id="voiceGateNoise">Set gate from noise</button></div>
@@ -652,7 +654,7 @@ const DEFAULTS = {
   genOn: false, genType: 'pink', genFreq: 1000, genLevel: -20,
   delayMs: 0,
   fftMode: 'mtw', avg: 8, smooth: 24, cohBlank: 0.5, cohView: 'lane', sideHidden: false, magRange: 20, magOffset: 0,
-  topView: 'rta', levMetric: 'lufs', levSpan: 1, levRange: 24, levRefWin: 10, levRef: {}, levSrc: 'meas', bandsSrc: 'meas', bandsFloor: -90, bandsCeil: -30, bandIgnore: [], bandIgnoreHz: null, bandPreset: 'iso31', bandCustom: '', bandTallySec: 10, bandGate: -60, thru: false, thruLevel: 0, monMode: 'off', monLevel: -20, voiceSrc: 'ref', voiceTau: 30, voiceGate: -50, voiceHpf: 3, voicePanel: true, monOut: '', rtaBands: '3', rtaAvg: 'fast', rtaUnits: 'dbfs', rtaTop: 0, rtaSpan: 100, peakHold: true,
+  topView: 'rta', levMetric: 'lufs', levSpan: 1, levRange: 24, levRefWin: 10, levRef: {}, levSrc: 'meas', bandsSrc: 'meas', bandsFloor: -90, bandsCeil: -30, bandIgnore: [], bandIgnoreHz: null, bandPreset: 'iso31', bandCustom: '', bandTallySec: 10, bandGate: -60, thru: false, thruLevel: 0, refAux: false, monMode: 'off', monLevel: -20, voiceSrc: 'ref', voiceTau: 30, voiceGate: -50, voiceHpf: 3, voicePanel: true, monOut: '', rtaBands: '3', rtaAvg: 'fast', rtaUnits: 'dbfs', rtaTop: 0, rtaSpan: 100, peakHold: true,
   specFloor: -110, specCeil: -40,
   serial: '', calAngle: '0', applyCal: true, splOffset: null, weight: 'A', timeW: 'fast', calRef: 94,
   micModel: 'umik', calActive: null, layout: null,
@@ -683,12 +685,12 @@ const S = {
   running: false, fs: 48000, ctx: null, gen: null, cap: null, streams: [],
   accs: [], grid: null, tf: null, rta: null, ir: null,
   lastAn: 0, hoverF: null,
-  meter: { meas: { pk: 0, clip: 0 }, ref: { pk: 0, clip: 0 } },
+  meter: { meas: { pk: 0, clip: 0 }, ref: { pk: 0, clip: 0 }, aux: { pk: 0, clip: 0 } },
   spl: { pos: 0, lev: 0, E: 0, T: 0, max: -Infinity, inst: null },
   dirty: true
 };
 const RB = 1 << 18, RBM = RB - 1;
-const ring = { ref: new Float32Array(RB), meas: new Float32Array(RB), w: 0 };
+const ring = { ref: new Float32Array(RB), meas: new Float32Array(RB), aux: new Float32Array(RB), w: 0 };
 const SPL_N = 4096;
 
 /* level history (Levels tab): fed from the audio callback so it keeps recording when the tab is hidden */
@@ -757,13 +759,13 @@ function toast(msg, ms = 2600){ const t = $('#toast'); t.textContent = msg; t.cl
 /* ---------------- audio worklets ---------------- */
 const WORKLET = `
 class Cap extends AudioWorkletProcessor{
-  constructor(){super();this.B=1024;this.n=0;this.a=new Float32Array(this.B);this.b=new Float32Array(this.B);}
+  constructor(){super();this.B=1024;this.n=0;this.a=new Float32Array(this.B);this.b=new Float32Array(this.B);this.c=new Float32Array(this.B);}
   process(inputs){
-    const x=inputs[0]&&inputs[0][0], y=inputs[1]&&inputs[1][0];
-    const len=(x||y)?(x||y).length:128;
+    const x=inputs[0]&&inputs[0][0], y=inputs[1]&&inputs[1][0], z=inputs[2]&&inputs[2][0];
+    const len=(x||y||z)?(x||y||z).length:128;
     for(let i=0;i<len;i++){
-      this.a[this.n]=x?x[i]:0; this.b[this.n]=y?y[i]:0; this.n++;
-      if(this.n===this.B){this.port.postMessage({r:this.a,m:this.b},[this.a.buffer,this.b.buffer]);this.a=new Float32Array(this.B);this.b=new Float32Array(this.B);this.n=0;}
+      this.a[this.n]=x?x[i]:0; this.b[this.n]=y?y[i]:0; this.c[this.n]=z?z[i]:0; this.n++;
+      if(this.n===this.B){this.port.postMessage({r:this.a,m:this.b,x:this.c},[this.a.buffer,this.b.buffer,this.c.buffer]);this.a=new Float32Array(this.B);this.b=new Float32Array(this.B);this.c=new Float32Array(this.B);this.n=0;}
     }
     return true;
   }
@@ -854,6 +856,7 @@ async function openStream(id){
 async function start(){
   if (S.running || S.starting) return;
   S.starting = true;
+  S.auxOn = false;
   try {
     if (!window.AudioWorkletNode) throw new Error('AudioWorklet not supported. Use a current Chrome or Edge.');
     let ctx;
@@ -865,7 +868,7 @@ async function start(){
 
     const gen = new AudioWorkletNode(ctx, 'ca-gen', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [1] });
     gen.connect(ctx.destination);
-    const cap = new AudioWorkletNode(ctx, 'ca-cap', { numberOfInputs: 2, numberOfOutputs: 1, outputChannelCount: [1], channelCount: 1, channelCountMode: 'explicit', channelInterpretation: 'discrete' });
+    const cap = new AudioWorkletNode(ctx, 'ca-cap', { numberOfInputs: 3, numberOfOutputs: 1, outputChannelCount: [1], channelCount: 1, channelCountMode: 'explicit', channelInterpretation: 'discrete' });
     const sink = ctx.createGain(); sink.gain.value = 0; cap.connect(sink).connect(ctx.destination);
 
     const inputs = new Map();
@@ -890,11 +893,13 @@ async function start(){
       } else {
         const ch = P.refCh === 'sum' ? 0 : Math.min(1, +P.refCh || 0);
         io.sp.connect(cap, ch, 0); S.srcRef = { node: io.sp, out: ch };
+        // the reference device's other channel as a second input (e.g. the desk's solo bus), for the Voice check
+        if (P.refAux && !shared){ io.sp.connect(cap, 1 - ch, 2); S.auxOn = true; S.auxCh = 1 - ch; }
       }
       // pass-through: the reference input goes straight to the output (amp), replacing the generator.
       // On a shared interface only the reference channel is passed, never the mic.
       const thruG = ctx.createGain(); thruG.gain.value = 0;
-      if (shared) S.srcRef.node.connect(thruG, S.srcRef.out); else io.src.connect(thruG);
+      if (shared || S.auxOn) S.srcRef.node.connect(thruG, S.srcRef.out); else io.src.connect(thruG);   // never pass the mic or the solo channel
       thruG.connect(ctx.destination); S.thruG = thruG;
     }
 
@@ -930,6 +935,7 @@ async function keepAwake(on){
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.running) keepAwake(true); });
 async function stop(quiet){
   S.running = false;
+  S.auxOn = false;
   S.thruG = null;
   monTeardown();
   keepAwake(false);
@@ -943,14 +949,15 @@ async function toggleRun(){ S.running ? await stop() : await start(); }
 document.addEventListener('pointerdown', () => { if (S.ctx && S.ctx.state === 'suspended') S.ctx.resume(); });
 
 function onAudio(e){
-  const { r, m } = e.data, n = r.length, inv = P.polarity ? -1 : 1;
-  let pr = 0, pm = 0;
+  const { r, m, x } = e.data, n = r.length, inv = P.polarity ? -1 : 1;
+  let pr = 0, pm = 0, px = 0;
   for (let i = 0; i < n; i++){
-    const j = (ring.w + i) & RBM, a = r[i], b = m[i] * inv;
-    ring.ref[j] = a; ring.meas[j] = b;
-    const aa = a < 0 ? -a : a, bb = b < 0 ? -b : b;
-    if (aa > pr) pr = aa; if (bb > pm) pm = bb;
+    const j = (ring.w + i) & RBM, a = r[i], b = m[i] * inv, c = x ? x[i] : 0;
+    ring.ref[j] = a; ring.meas[j] = b; ring.aux[j] = c;
+    const aa = a < 0 ? -a : a, bb = b < 0 ? -b : b, cc = c < 0 ? -c : c;
+    if (aa > pr) pr = aa; if (bb > pm) pm = bb; if (cc > px) px = cc;
   }
+  S.meter.aux.pk = Math.max(px, S.meter.aux.pk); if (px >= 0.999) S.meter.aux.clip = performance.now();
   levFeed(LEVS.meas, m, n, inv); levFeed(LEVS.ref, r, n, 1);
   ring.w += n;
   const now = performance.now(), M = S.meter;
@@ -1841,16 +1848,28 @@ function drawBands(F){
 // speech-gated long-term average spectrum in 1/24-octave bands, for both inputs
 const VOICE_FC = []; for (let k = -104; k <= 96; k++) VOICE_FC.push(1000 * Math.pow(2, k / 24));   // 50 Hz to 16 kHz
 const mkVoice = () => ({ E: new Float64Array(VOICE_FC.length), secs: 0, count: 0, open: false, recent: [] });
-const VOICE = { meas: mkVoice(), ref: mkVoice() };
-const voiceSrc = () => P.voiceSrc === 'meas' ? 'meas' : 'ref';
+const VOICE = { meas: mkVoice(), ref: mkVoice(), aux: mkVoice() };
+const voiceSrc = () => P.voiceSrc === 'meas' ? 'meas' : P.voiceSrc === 'aux' && (S.auxOn || (!S.running && VOICE.aux.count)) ? 'aux' : 'ref';
+const VOICE_SRC_LABEL = { aux: 'solo (2nd ref channel)', ref: 'ref input', meas: 'mic' };
+// spectrum of the second reference channel: one Hann-windowed FFT per analysis tick
+function auxSpectrum(){
+  const N = S.fs >= 88200 ? 32768 : 16384, M = N / 2 + 1, { w, s2 } = DSP.hann(N);
+  if (!S.auxBuf || S.auxBuf.N !== N) S.auxBuf = { N, M, re: new Float64Array(N), im: new Float64Array(N), c: new Float64Array(M + 1), scale: 4 / (N * s2) };
+  const B = S.auxBuf, end = ring.w; if (end < N) return null;
+  for (let i = 0; i < N; i++){ B.re[i] = ring.aux[(end - N + i) & RBM] * w[i]; B.im[i] = 0; }
+  DSP.fft(B.re, B.im, false);
+  B.c[0] = 0; for (let k = 0; k < M; k++) B.c[k + 1] = B.c[k] + B.re[k] * B.re[k] + B.im[k] * B.im[k];
+  return B;
+}
 function pushVoice(dt){
   if (!S.accs.length) return;
   const n = VOICE_FC.length, h = Math.pow(2, 1 / 48), nyq = S.fs / 2, cum = DSP.cum;
-  for (const src of ['meas', 'ref']){
+  const AX = S.auxOn ? auxSpectrum() : null;
+  for (const src of AX ? ['meas', 'ref', 'aux'] : ['meas', 'ref']){
     const V = VOICE[src], fr = new Float64Array(n); let core = 0;
     for (let i = 0; i < n; i++){
       const f = VOICE_FC[i]; if (f * h >= nyq){ fr[i] = 0; continue; }
-      const a = accFor(f), c = src === 'meas' ? a.cInst : a.cInstX, k = f * a.N / S.fs;
+      const a = src === 'aux' ? AX : accFor(f), c = src === 'meas' ? a.cInst : src === 'aux' ? AX.c : a.cInstX, k = f * a.N / S.fs;
       let lo = f / h * a.N / S.fs, hi = f * h * a.N / S.fs, p;
       if (hi - lo < 1) p = (cum(c, k + 0.5, a.M) - cum(c, k - 0.5, a.M)) * (hi - lo); else p = cum(c, hi, a.M) - cum(c, lo, a.M);
       let e = a.scale * p; if (src === 'meas') e *= Math.pow(10, -calAt(f) / 10);
@@ -1922,7 +1941,7 @@ function drawVoice(F){
     const i = VOICE_FC.reduce((b, v, j) => Math.abs(Math.log(v / S.hoverF)) < Math.abs(Math.log(VOICE_FC[b] / S.hoverF)) ? j : b, 0);
     return `${fmtHz(S.hoverF)}  ${R.S3[i].toFixed(1)} dBFS  ${R.D[i] >= 0 ? '+' : ''}${R.D[i].toFixed(1)} dB vs natural`;
   }
-  return (voiceSrc() === 'ref' ? 'ref input' : 'mic') + ` · dBFS per 1/3 oct · gate ${P.voiceGate} dBFS`;
+  return VOICE_SRC_LABEL[voiceSrc()] + (P.voiceSrc === 'aux' && voiceSrc() !== 'aux' ? ' (solo channel not on: tick it under Inputs)' : '') + ` · dBFS per 1/3 oct · gate ${P.voiceGate} dBFS`;
 }
 function voicePanel(R, V, ok){
   const el = $('#voicePanel'); if (!el) return;
@@ -1968,7 +1987,7 @@ function drawTop(){
 }
 function drawMeters(dt){
   const now = performance.now();
-  for (const [id, m] of [['#mtMeas', S.meter.meas], ['#mtRef', S.meter.ref]]){
+  for (const [id, m] of [['#mtMeas', S.meter.meas], ['#mtRef', S.meter.ref], ['#mtAux', S.meter.aux]]){
     const el = $(id), db = 20 * Math.log10(m.pk + 1e-9);
     const pct = Math.max(0, Math.min(100, (db + 60) / 60 * 100));
     el.querySelector('b').style.width = pct + '%';
@@ -2351,7 +2370,8 @@ function syncUI(){
   $('#layoutBtn').textContent = P.layout === 'rta' ? 'ALL PANES' : (TOP_NAMES[P.topView] || 'RTA').toUpperCase() + ' ONLY';
   $('#levCtl').hidden = P.topView !== 'lev'; $('#bandsCtl').hidden = P.topView !== 'bands'; $('#voiceCtl').hidden = P.topView !== 'voice';
   $('#voicePanel').hidden = P.topView !== 'voice' || !P.voicePanel; $('#voicePanelBtn').classList.toggle('on', !!P.voicePanel);
-  $('#voiceSrcBtn').textContent = (voiceSrc() === 'ref' ? 'Ref in' : 'Mic in') + ' ▸';
+  $('#voiceSrcBtn').textContent = ({ aux: 'Solo', ref: 'Ref in', meas: 'Mic in' })[voiceSrc()] + ' ▸';
+  $('#mtAux').hidden = !S.auxOn; $('#refAuxRow').hidden = P.refDev === 'gen';
   ['voiceSrc', 'voiceTau', 'voiceGate', 'voiceHpf'].forEach(k => set(k, P[k]));
   S.voicePanelT = 0;
   $('#levMetricBtn').textContent = levShort() + ' ▸';
@@ -2363,7 +2383,7 @@ function syncUI(){
   LEV = LEVS[P.levSrc === 'ref' ? 'ref' : 'meas'];
   $('#levSrcBtn').textContent = (P.levSrc === 'ref' ? 'Ref in' : 'Mic in') + ' ▸';
   $('#bandsSrcBtn').textContent = (P.bandsSrc === 'ref' ? 'Ref in' : 'Mic in') + ' ▸';
-  ['levMetric', 'levSpan', 'levRange', 'levRefWin', 'bandsFloor', 'bandsCeil', 'bandPreset', 'bandCustom', 'bandTallySec', 'bandGate', 'levSrc', 'bandsSrc', 'monMode', 'monLevel', 'thru', 'thruLevel'].forEach(k => set(k, P[k]));
+  ['levMetric', 'levSpan', 'levRange', 'levRefWin', 'bandsFloor', 'bandsCeil', 'bandPreset', 'bandCustom', 'bandTallySec', 'bandGate', 'levSrc', 'bandsSrc', 'monMode', 'monLevel', 'thru', 'thruLevel', 'refAux'].forEach(k => set(k, P[k]));
   $('#bandCustomRow').hidden = P.bandPreset !== 'custom';
   $('#bandPresetBtn').textContent = (BAND_PRESETS[bandSet().id] || BAND_PRESETS.iso31).short + ' ▸';
   const okSerial = serialDigits().length === 7;
@@ -2427,9 +2447,10 @@ bind('levSrc', 'levSrc');
 bind('voiceSrc', 'voiceSrc'); bind('voiceTau', 'voiceTau', { num: true }); bind('voiceGate', 'voiceGate', { num: true }); bind('voiceHpf', 'voiceHpf', { num: true });
 $('#voiceGateNoise').onclick = voiceGateFromNoise;
 $('#voiceResetBtn').onclick = () => { voiceReset(); toast('Voice check restarted'); };
-$('#voiceSrcBtn').onclick = () => { P.voiceSrc = voiceSrc() === 'ref' ? 'meas' : 'ref'; changed(); };
+$('#voiceSrcBtn').onclick = () => { const order = (S.auxOn || P.refAux) ? ['aux', 'ref', 'meas'] : ['ref', 'meas']; P.voiceSrc = order[(order.indexOf(voiceSrc()) + 1) % order.length]; changed(); };
 $('#voicePanelBtn').onclick = () => { P.voicePanel = !P.voicePanel; changed(); };
 bind('monMode', 'monMode', { after: () => { if (P.monMode !== 'off' && !S.running) toast('Press Start to hear the monitor.'); monBuild(); } });
+bind('refAux', 'refAux', { after: () => { if (P.refAux){ P.voiceSrc = 'aux'; if (P.refCh === 'sum') P.refCh = '0'; save(); toast('The other reference channel is now the Voice check input.'); } restart(); } });
 bind('thru', 'thru', { after: () => { thruApply(); if (P.thru && P.genOn) toast('The generator is muted while pass-through is on.'); } });
 bind('thruLevel', 'thruLevel', { num: true, after: () => thruApply() });
 bind('monLevel', 'monLevel', { num: true, after: () => { if (S.mon) S.mon.out.gain.setTargetAtTime(Math.pow(10, P.monLevel / 20), S.ctx.currentTime, 0.03); } });

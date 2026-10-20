@@ -318,7 +318,8 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
         <li><strong>Thin</strong> or <strong>lacking presence</strong>: these get advice rather than an EQ, because boosting costs feedback margin. Moving the mic usually fixes them.</li>
       </ul>
       <p>The bar at the top of the panel shows how the energy splits across the three zones. Each suggestion is numbered on the graph, and the dashed line shows the predicted result. Cutting is generally safe, unless it takes so much out of the speech band that you need more gain to hear the talker, which eats into feedback margin. So clever estimates how much speech level each cut costs and warns when the total gets too high.</p>
-      <p>Press <span class="ui">New talker</span> when someone else steps up. <span class="ui">Set gate from noise</span>, pressed while nobody is talking, puts the speech gate just above the room noise.</p>
+      <p>The Voice check can listen to a third input, so you can leave the RTA and transfer function running and glance at it now and then. If your reference comes from a stereo input, tick <span class="ui">Inputs › Other channel is a second input</span>. The reference uses the channel chosen under <span class="ui">Ref channel</span>, the other channel becomes <strong>Solo</strong> with its own meter, and Voice listens to it. A desk's solo bus is a good choice: solo the vocal mic and Voice checks it without touching anything else. Voice keeps collecting in the background whichever tab is showing.</p>
+      <p>Loud, brief sounds such as a phone ringing or a burst of feedback dominate the average for a while. Press <span class="ui">New talker</span> to clear it, and also when someone else steps up. <span class="ui">Set gate from noise</span>, pressed while nobody is talking, puts the speech gate just above the room noise.</p>
     </section>
 
     <section id="tf">
@@ -460,8 +461,8 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
       </ol>
       <h3>Clean up a lectern or panel mic</h3>
       <ol class="steps">
-        <li><span>Send the vocal's group output, after its EQ, to the interface's reference input. If the desk can send a stereo pair, put that on the left and the desk's solo bus on the right, and pick the channel under <span class="ui">Ref channel</span>.</span></li>
-        <li><span>Open the <span class="ui">Voice</span> tab with the source on <span class="ui">Ref in</span>. With nobody talking, press <span class="ui">Set gate from noise</span>.</span></li>
+        <li><span>Patch the vocal group's output, after its EQ, to the left channel of the reference input, and the desk's solo bus to the right. Set <span class="ui">Ref channel</span> to Channel 1 and tick <span class="ui">Other channel is a second input</span>. The measurement mic stays as it is, so the RTA and transfer function keep working.</span></li>
+        <li><span>Solo the lectern mic. Open the <span class="ui">Voice</span> tab with the source on <span class="ui">Solo</span>. With nobody talking, press <span class="ui">Set gate from noise</span>.</span></li>
         <li><span>Have the talker speak normally for a few seconds; ten or more is better. Watch the energy split and the suggestions build up.</span></li>
         <li><span>Make the first suggestion on the channel strip, usually the high-pass or the biggest cut. The dashed line shows what to expect. Press <span class="ui">New talker</span> to measure again with the change in place.</span></li>
         <li><span>Stop when the list says the voice looks clean, or when the cost warning appears. After that, moving the mic or coaching the talker does more than EQ.</span></li>
