@@ -130,7 +130,7 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
 /* deck mirror */
 .console{background:var(--panel);padding:8px 10px;border-top:1px solid var(--line)}
 .console .grid{display:grid;grid-template-columns:repeat(8,minmax(0,64px));gap:6px;justify-content:center}
-.console canvas{width:100%;aspect-ratio:1;border-radius:6px;cursor:pointer;display:block;max-width:100%}
+.console canvas{width:100%;aspect-ratio:1;border-radius:6px;cursor:pointer;display:block;max-width:100%;touch-action:none;-webkit-touch-callout:none;user-select:none}
 .console canvas:active{transform:scale(.95)}
 
 #toast{position:fixed;left:50%;bottom:max(18px,env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--raise);border:1px solid var(--grid2);color:var(--fg);padding:9px 14px;border-radius:6px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;max-width:min(560px,92vw);z-index:20}
@@ -1736,7 +1736,13 @@ const DECKS = {
   0x00a5: { name: 'Stream Deck MK.2', cols: 5, rows: 3, px: 72 },
   0x006d: { name: 'Stream Deck V2', cols: 5, rows: 3, px: 72 }
 };
-const deck = { dev: null, model: null, sigs: [], prev: [], q: Promise.resolve(), page: 0, busy: false };
+const deck = { dev: null, model: null, sigs: [], prev: [], q: Promise.resolve(), page: 0, busy: false, down: [] };
+const HOLD_MS = 500;
+function runKey(fn){ if (fn) Promise.resolve(fn()).finally(() => { deck.sigs = deck.sigs.map(() => ''); }); }
+// keys with a hold action fire it after HOLD_MS, or their press action on a shorter release; others fire on key down
+function keyDown(i){ const a = actionAt(i); if (!a) return; if (!a.hold){ runKey(a.press); return; }
+  const st = deck.down[i] = { a, held: false }; st.timer = setTimeout(() => { st.held = true; runKey(a.hold); }, HOLD_MS); }
+function keyUp(i){ const st = deck.down[i]; if (!st) return; clearTimeout(st.timer); if (!st.held) runKey(st.a.press); deck.down[i] = null; }
 const cyc = (arr, v) => arr[(arr.findIndex(x => String(x) === String(v)) + 1) % arr.length];
 const KEY = { idle: '#1b222c' };
 function onKey(top, main, sub, on){ return { top, main, sub, bg: on ? C.accent : KEY.idle, fg: on ? '#1a1206' : C.fg, fg2: on ? '#3d2a0c' : C.dim }; }
@@ -1744,8 +1750,10 @@ const SMOOTH_LBL = { 0: 'NONE', 48: '1/48', 24: '1/24', 12: '1/12', 6: '1/6', 3:
 const ACTIONS = [
   // row 1 · engine & generator
   { k: () => ({ top: 'ANALYZER', main: S.running ? 'STOP' : 'START', sub: S.running ? 'running' : 'stopped', bg: S.running ? '#1f4d33' : KEY.idle, fg: C.fg, fg2: S.running ? '#9fe3b9' : C.dim }), press: toggleRun },
-  { k: () => onKey('GENERATOR', P.genOn ? 'ON' : 'OFF', P.genType.toUpperCase(), P.genOn), press: toggleGen },
-  { k: () => onKey('SIGNAL', P.genType === 'sine' ? 'SINE' : P.genType.toUpperCase(), P.genType === 'sine' ? fmtF(+P.genFreq) : 'noise'), press: () => { P.genType = cyc(['pink', 'white', 'sine'], P.genType); changed(); sendGen(); } },
+  // tap: change signal; hold: generator on/off
+  { k: () => onKey(P.genOn ? 'GEN ON' : 'GEN OFF', P.genType === 'sine' ? 'TONE' : P.genType.toUpperCase(), P.genType === 'sine' ? fmtF(+P.genFreq) + ' · hold' : 'hold: on/off', P.genOn),
+    press: () => { P.genType = cyc(['pink', 'white', 'sine'], P.genType); changed(); sendGen(); }, hold: toggleGen },
+  { k: () => onKey('LAYOUT', P.layout === 'rta' ? (TOP_NAMES[P.topView] || 'RTA').toUpperCase() : 'ALL', P.layout === 'rta' ? 'only' : 'panes', P.layout === 'rta'), press: toggleLayout },
   { k: () => onKey('LEVEL', '−2', P.genLevel + ' dBFS'), press: () => { P.genLevel = Math.max(-60, P.genLevel - 2); changed(); sendGen(); } },
   { k: () => onKey('LEVEL', '+2', P.genLevel + ' dBFS'), press: () => { P.genLevel = Math.min(0, P.genLevel + 2); changed(); sendGen(); } },
   { k: () => ({ top: 'FIND DELAY', main: P.delayMs.toFixed(2), sub: 'ms', bg: '#2a2140', fg: C.fg, fg2: '#b8a6e8' }), press: findDelay },
@@ -1829,7 +1837,8 @@ function deckInput(e){
   const n = keysPerPage();
   for (let i = 0; i < n; i++){
     const down = e.data.getUint8(3 + i) === 1;
-    if (down && !deck.prev[i]){ const a = actionAt(i); if (a) Promise.resolve(a.press()).finally(() => { deck.sigs = deck.sigs.map(() => ''); }); }
+    if (down && !deck.prev[i]) keyDown(i);
+    else if (!down && deck.prev[i]) keyUp(i);
     deck.prev[i] = down;
   }
 }
@@ -1875,8 +1884,12 @@ function buildConsole(){
   grid.style.gridTemplateColumns = `repeat(${m.cols}, minmax(0, 64px))`;
   for (let i = 0; i < m.cols * m.rows; i++){
     const cv = document.createElement('canvas'); cv.width = cv.height = 96; cv.setAttribute('role', 'button'); cv.tabIndex = 0;
-    cv.onclick = () => { const a = actionAt(i); if (a) Promise.resolve(a.press()).finally(() => { deck.sigs = []; }); };
-    cv.onkeydown = e => { if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); cv.onclick(); } };
+    cv.addEventListener('pointerdown', e => { e.preventDefault(); cv.setPointerCapture?.(e.pointerId); keyDown(i); });
+    cv.addEventListener('pointerup', () => keyUp(i));
+    cv.addEventListener('pointercancel', () => { const st = deck.down[i]; if (st){ clearTimeout(st.timer); deck.down[i] = null; } });
+    cv.addEventListener('contextmenu', e => e.preventDefault());   // long-press on touch shouldn't open a menu
+    cv.onkeydown = e => { if ((e.key === 'Enter' || e.key === ' ') && !e.repeat){ e.preventDefault(); keyDown(i); } };
+    cv.onkeyup = e => { if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); keyUp(i); } };
     grid.append(cv); consoleCanvases.push(cv);
   }
   deck.sigs = [];

@@ -23,7 +23,7 @@ Keep it a single self-contained page. Don't add a bundler, framework or npm depe
 - Served by the owner's Node/Express server as static files under `/clever/`, over HTTPS. Mic access and WebHID require HTTPS.
 - The server folder is a git clone of this repo. The owner deploys by running `git pull` on the server, usually over SSH from Termux on his phone. There is no CI.
 - All paths are relative (manifest `start_url` and `scope` are `./`, the service worker is registered as `sw.js`). Keep them relative so the app works in any subfolder.
-- When you change cached assets, bump `CACHE` in `sw.js` (currently `clever-v11`) so installed copies refresh.
+- When you change cached assets, bump `CACHE` in `sw.js` (currently `clever-v12`) so installed copies refresh.
 - Commit and push to `main`, then tell the owner to pull.
 
 ## Code map (`index.html`)
@@ -43,7 +43,7 @@ Keep it a single self-contained page. Don't add a bundler, framework or npm depe
    - **plotting**: canvas plots on a log-frequency axis (20 Hz to 20 kHz). `drawMag()` has five coherence views in `COH_VIEWS` (`P.cohView`, key K): lane (default, own strip at the top), overlay, mist (red haze where coherence is poor), fade (live trace alpha follows coherence) and off. These are on trial: the owner will pick a favourite and the rest can be removed. The `loop()` analysis and render runs on `requestAnimationFrame` at about 13 Hz, so it pauses when the tab is hidden.
    - **calibration**: mic profiles live in `CALS` (localStorage key `ca.cals`), each with its own `splOffset`. `autoPickCal()` matches the input device label (`/umik/`, `/imm-?6|dayton/`).
    - **traces**: `TRACES` (key `ca.traces`), CSV import and export.
-   - **Stream Deck**: WebHID, Elgato gen-2 protocol (see below). `ACTIONS` is a 32-entry key map that is also drawn as the on-screen console.
+   - **Stream Deck**: WebHID, Elgato gen-2 protocol (see below). `ACTIONS` is a 32-entry key map that is also drawn as the on-screen console. An entry may have `hold` as well as `press`: `keyDown`/`keyUp` fire `hold` after `HOLD_MS` (500 ms) or `press` on a shorter release; keys without `hold` fire on key down. Key 2 is the generator (tap: pink/white/tone, hold: on/off), key 3 is Layout (single view or all panes). The owner has tested the XL and it works.
    - **UI wiring**: `bind(id, key, opts)` connects a form control to a `P` key. `syncUI()` pushes state back into the DOM.
 
 Storage keys: `ca.settings`, `ca.cals`, `ca.traces`. The old `ca.cal` key is migrated into `ca.cals` on load. Don't rename these keys without a migration, or users lose their cal profiles and traces.
@@ -65,7 +65,7 @@ Vendor ID 0x0fd9. Supported product IDs: XL 0x006c and 0x008f (8×4, 96 px keys)
 - **Brightness**: feature report 0x03 with `[0x08, percent]`, padded to 31 bytes. Reset is `[0x02]`.
 - **Key presses**: input report 0x01, key states start at data offset 3.
 
-The protocol is written from community documentation and hasn't been tested on hardware yet. If keys misbehave, suspect the key index mapping and the input report offset first. Android Chrome has no WebHID, so the app hides the connect button there and offers only the on-screen console.
+The protocol was written from community documentation and has been confirmed working on the owner's Stream Deck XL. If another model misbehaves, suspect the key index mapping and the input report offset first. Android Chrome has no WebHID, so the app hides the connect button there and offers only the on-screen console.
 
 ## Testing
 
@@ -76,7 +76,7 @@ The protocol is written from community documentation and hasn't been tested on h
 
 ## Status
 
-Untested on real hardware: the Stream Deck XL, the iMM-6C on the Galaxy Z Fold 7, SPL accuracy against a calibrator, and a side-by-side comparison with Smaart.
+Untested on real hardware: the iMM-6C on the Galaxy Z Fold 7, SPL accuracy against a calibrator, and a side-by-side comparison with Smaart.
 
 Gaps against Smaart Live, roughly in the owner's priority order:
 
