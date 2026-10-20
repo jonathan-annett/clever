@@ -87,6 +87,16 @@ Gaps against Smaart Live, roughly in the owner's priority order:
 5. Impulse response with ETC and log views, RT60, T20, T30, C50 and C80, plus sweep and periodic pink generator signals.
 6. Arbitrary input channel routing beyond channels 1 and 2, saved setups, and peak and difference cursors.
 
+## Planned: phone as a remote
+
+For people without a Stream Deck: a phone shows the on-screen console and controls clever on a laptop. Not started; the owner wants to use clever more first and move the domain to its own VPS before adding WebSocket traffic. Agreed design:
+
+- **Transport:** a small WebSocket relay on the owner's server (the `ws` package, a module in this repo plus a two-line hookup in his Express app). Both clever and the phone connect outward, so it works on venue Wi-Fi, mobile data or a phone hotspot. No WebRTC: it still needs signalling through a server, and Chrome's mDNS host candidates and carrier NAT make direct links unreliable on hotspots, for little gain on button presses. WebRTC could be layered on later with the relay as fallback.
+- **Pairing:** clever shows a QR code with a random room code; scanning it opens clever in remote mode (console only, full screen). clever shows a notice when a remote connects and can disconnect all remotes.
+- **Messages:** key presses from the phone; key faces (the `ACTIONS[i].k()` objects, only those whose signature changed) from clever, so the phone draws them with `drawKey()`. Tap versus hold is decided on the phone, which sends `press` or `hold`, so network jitter can't turn a tap into a hold.
+- **Shared relay:** the same relay may serve other integrations later; plan it with the owner rather than building something specific to the remote.
+- **Before building:** ask whether anything sits in front of Express (nginx, Caddy, Cloudflare) that needs WebSocket upgrades enabled, and whether the remote should also show SPL and Levels readouts.
+
 ## Owner preferences
 
 - Plain, direct UI copy. Measurement terms of art are fine; marketing tone isn't.
