@@ -23,7 +23,7 @@ Keep it a single self-contained page. Don't add a bundler, framework or npm depe
 - Served by the owner's Node/Express server as static files under `/clever/`, over HTTPS. Mic access and WebHID require HTTPS.
 - The server folder is a git clone of this repo. The owner deploys by running `git pull` on the server, usually over SSH from Termux on his phone. There is no CI.
 - All paths are relative (manifest `start_url` and `scope` are `./`, the service worker is registered as `sw.js`). Keep them relative so the app works in any subfolder.
-- When you change cached assets, bump `CACHE` in `sw.js` (currently `clever-v23`) so installed copies refresh.
+- When you change cached assets, bump `CACHE` in `sw.js` (currently `clever-v24`) so installed copies refresh.
 - Commit and push to `main`, then tell the owner to pull.
 
 ## Code map (`index.html`)
