@@ -22,12 +22,12 @@ Keep it a single self-contained page. Don't add a bundler, framework or npm depe
 - Served by the owner's Node/Express server as static files under `/clever/`, over HTTPS. Mic access and WebHID require HTTPS.
 - The server folder is a git clone of this repo. The owner deploys by running `git pull` on the server, usually over SSH from Termux on his phone. There is no CI.
 - All paths are relative (manifest `start_url` and `scope` are `./`, the service worker is registered as `sw.js`). Keep them relative so the app works in any subfolder.
-- When you change cached assets, bump `CACHE` in `sw.js` (currently `clever-v4`) so installed copies refresh.
+- When you change cached assets, bump `CACHE` in `sw.js` (currently `clever-v5`) so installed copies refresh.
 - Commit and push to `main`, then tell the owner to pull.
 
 ## Code map (`index.html`)
 
-1. `<style>`: dark-only design on purpose (used in dark venues). Tokens on `:root`. `[hidden]{display:none!important}` must stay, or elements with their own `display` ignore the hidden attribute. Under 900 px the settings panel becomes a slide-out drawer.
+1. `<style>`: dark-only design on purpose (used in dark venues). Tokens on `:root`. `[hidden]{display:none!important}` must stay, or elements with their own `display` ignore the hidden attribute. Under 900 px the settings panel becomes a slide-out drawer; above that, `.app.nside` collapses it (`P.sideHidden`, key S). The ☰ button handles both.
 2. `<script id="dsp">`: pure DSP with no DOM access, also exported for Node (`module.exports = DSP`) so it can be unit tested. Contains a radix-2 FFT, Hann window cache, prefix sums with fractional-bin integration (`cum`), GCC-PHAT delay finder, A and C weighting, log-frequency interpolation and the cal file parser.
 3. Main script, in banner-commented sections:
    - **settings**: `P` is the persisted settings object (`DEFAULTS` merged with `localStorage`). Call `changed()` or `save()` + `syncUI()` after mutating it.
@@ -36,7 +36,7 @@ Keep it a single self-contained page. Don't add a bundler, framework or npm depe
    - **analysis**: ring buffers of 2^18 samples. Multi-time-window FFT sizes are 16k down to 512 at 48 kHz (doubled at 88.2 kHz and above). The `MTW_BOUNDS` crossovers are 200, 400, 800, 1600 and 3200 Hz. Cross-spectra are averaged per size. A residual sub-sample delay is applied as a phase rotation. Smoothing is complex smoothing over fractional-octave bands via prefix sums. The display grid is 1/48 octave, 18 Hz to 22 kHz.
    - **delay finder**: GCC-PHAT over 65536 samples with parabolic interpolation. A confidence ratio below 8 is rejected. Negative delays delay the measurement instead of the reference.
    - **SPL**: 4096-sample non-overlapping blocks, frequency-domain weighting including mic cal correction, Fast and Slow exponential time weighting, Leq and Max.
-   - **plotting**: canvas plots on a log-frequency axis (20 Hz to 20 kHz). The `loop()` analysis and render runs on `requestAnimationFrame` at about 13 Hz, so it pauses when the tab is hidden.
+   - **plotting**: canvas plots on a log-frequency axis (20 Hz to 20 kHz). `drawMag()` has five coherence views in `COH_VIEWS` (`P.cohView`, key K): lane (default, own strip at the top), overlay, mist (red haze where coherence is poor), fade (live trace alpha follows coherence) and off. These are on trial: the owner will pick a favourite and the rest can be removed. The `loop()` analysis and render runs on `requestAnimationFrame` at about 13 Hz, so it pauses when the tab is hidden.
    - **calibration**: mic profiles live in `CALS` (localStorage key `ca.cals`), each with its own `splOffset`. `autoPickCal()` matches the input device label (`/umik/`, `/imm-?6|dayton/`).
    - **traces**: `TRACES` (key `ca.traces`), CSV import and export.
    - **Stream Deck**: WebHID, Elgato gen-2 protocol (see below). `ACTIONS` is a 32-entry key map that is also drawn as the on-screen console.
@@ -65,9 +65,10 @@ The protocol is written from community documentation and hasn't been tested on h
 
 ## Testing
 
+- Playwright with Chromium is available in the cloud agent sandbox (`/opt/npm-tools/node_modules/playwright`, browsers in `/opt/pw-browsers`). Serve the folder with a tiny static server, launch with `--use-fake-ui-for-media-stream --use-fake-device-for-media-stream` for a fake mic, and screenshot. To judge transfer function drawing, set `S.tf` to synthetic `{f, mag, ph, coh}` arrays, because the fake mic doesn't correlate with the generator. Google Fonts are blocked there, so text falls back to system fonts.
 - No test suite. To check the main script's syntax, extract it and run `node --check`.
 - To test the DSP, extract the `#dsp` script and `require()` it in Node. Earlier simulated checks passed: GCC-PHAT recovered a 1234.4-sample delay, the transfer function read −6.02 dB for a 0.5× gain with the expected residual phase, and a full-scale sine read 0.00 dBFS.
-- There is no headless browser in the usual agent sandbox. Visual or UI changes need the owner to look on his devices.
+- Visual or UI changes still need the owner to look on his devices.
 
 ## Status
 

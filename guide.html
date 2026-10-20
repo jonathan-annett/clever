@@ -301,10 +301,18 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
       <p>The bottom plot. The line shows how much louder (above 0) or quieter (below 0) the system makes each frequency compared with what went in. A perfectly flat system would be a flat line. Hills are frequencies the system exaggerates; valleys are ones it loses.</p>
       <p>The line's height depends on gain settings, so its absolute position isn't important; its <em>shape</em> is. Press <span class="ui">Center trace</span> to slide it to the middle of the plot.</p>
       <h3>Coherence: can you trust this part of the plot?</h3>
-      <p>The red line along the top of the magnitude plot, from 0 to 1. It tells you how consistently the measurement relates to the reference at each frequency.</p>
+      <p>The red line in the strip along the top of the magnitude plot, from 0 to 1. It tells you how consistently the measurement relates to the reference at each frequency.</p>
       <ul>
         <li><strong>Near 1</strong>: solid, trustworthy data.</li>
         <li><strong>Low or jumping</strong>: something else is going on. Usually background noise, heavy reverberation, too little signal at that frequency, or the delay not being set.</li>
+      </ul>
+      <p>You can change how coherence is drawn with <span class="ui">Coh. view</span>, by clicking <span class="ui">Coherence</span> above the plot, or with <kbd>K</kbd>:</p>
+      <ul>
+        <li><strong>Lane</strong>: coherence gets its own strip along the top, so it never covers the magnitude trace.</li>
+        <li><strong>Overlay</strong>: a faint coherence line over the top part of the plot, with the live trace drawn on top.</li>
+        <li><strong>Mist</strong>: no line; a red haze appears behind frequencies where coherence is poor.</li>
+        <li><strong>Fade</strong>: no line; the live trace itself fades where coherence is poor.</li>
+        <li><strong>Off</strong>: magnitude only.</li>
       </ul>
       <p>With <span class="ui">Coh. blanking</span> turned on, clever hides the magnitude and phase wherever coherence falls below the threshold, so you only see data worth acting on.</p>
       <figure>
@@ -406,6 +414,9 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
         <tr><td><kbd>C</kbd></td><td>Capture a trace</td></tr>
         <tr><td><kbd>R</kbd></td><td>Reset averages</td></tr>
         <tr><td><kbd>L</kbd></td><td>Switch between RTA only and all panes</td></tr>
+        <tr><td><kbd>S</kbd></td><td>Show or hide the settings panel</td></tr>
+        <tr><td><kbd>F</kbd></td><td>Full screen</td></tr>
+        <tr><td><kbd>K</kbd></td><td>Change the coherence view</td></tr>
         <tr><td><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></td><td>Top plot: RTA, Spectrograph, Impulse</td></tr>
       </table></div>
       <h3>Stream Deck</h3>

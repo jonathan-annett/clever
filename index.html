@@ -69,7 +69,6 @@ button,select,input{font:inherit;color:inherit}
 .spl .v{font-size:30px;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
 .spl .u{color:var(--dim);font-size:13px}
 .spl .s{color:var(--dim);font-size:11px;display:flex;flex-direction:column;line-height:1.3}
-.sidebtn{display:none}
 
 /* shell */
 .shell{display:grid;grid-template-columns:304px 1fr;min-height:0}
@@ -140,13 +139,20 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
 
 .app.rta .main{grid-template-rows:1fr auto}
 .app.rta .tf{display:none}
+@media (min-width:901px){
+  .app.nside .shell{grid-template-columns:1fr}
+  .app.nside .side{display:none}
+}
+.legend .cohbtn{background:none;border:0;padding:0;font:inherit;color:var(--coh);cursor:pointer}
+.legend .cohbtn::before{content:"";display:inline-block;width:12px;height:2px;margin-right:5px;vertical-align:middle;background:currentColor}
+.legend .cohbtn b{font-weight:600}
+.legend .cohbtn:hover{text-decoration:underline}
 #scrim{position:fixed;inset:0;background:rgba(5,8,11,.6);z-index:14}
 @media (max-width:900px){
   .app{height:100dvh}
   .shell{grid-template-columns:1fr}
   .side{position:fixed;z-index:15;top:0;bottom:0;left:0;width:min(340px,88vw);transform:translateX(-102%);transition:transform .2s ease;padding-top:env(safe-area-inset-top,0px);padding-left:env(safe-area-inset-left,0px);box-shadow:8px 0 24px rgba(0,0,0,.45)}
   .side.open{transform:none}
-  .sidebtn{display:inline-block}
   .top{gap:8px 10px;padding-top:max(8px,env(safe-area-inset-top,0px))}
   .meters{min-width:130px}
   .run{padding:7px 12px}
@@ -164,7 +170,7 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
 <body>
 <div class="app">
   <header class="top">
-    <button class="chipbtn sidebtn" id="sideToggle" aria-label="Settings">☰</button>
+    <button class="chipbtn" id="sideToggle" aria-label="Show or hide settings" title="Settings (S)">☰</button>
     <div class="brand" id="brand" title="Status light: green while the analyzer is running"><i></i><span><b class="wm">cle<em>v</em>er</b><small>audiogeek</small></span></div>
     <button class="run" id="runBtn" title="Space">Start</button>
     <div class="meters">
@@ -175,6 +181,7 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
     <button class="chipbtn" id="layoutBtn" title="L">RTA ONLY</button>
     <button class="chipbtn" id="topGen" title="G">GEN OFF</button>
     <button class="chipbtn" id="topDeck">DECK –</button>
+    <button class="chipbtn" id="fsBtn" title="Full screen (F)" aria-label="Full screen">⛶</button>
     <a class="chipbtn" href="guide.html" target="_blank" rel="noopener" title="User guide" aria-label="User guide" style="text-decoration:none">?</a>
     <div class="spl" title="Sound level">
       <span class="v" id="splVal">--.-</span><span class="u" id="splUnit">dBA</span>
@@ -231,6 +238,7 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
           <div class="row"><label for="fftMode">FFT</label><select id="fftMode"><option value="mtw">Multi-time window</option><option value="4096">4k</option><option value="8192">8k</option><option value="16384">16k</option><option value="32768">32k</option><option value="65536">64k</option></select></div>
           <div class="row"><label for="avg">Averages</label><select id="avg"><option value="1">1</option><option value="2">2</option><option value="4">4</option><option value="8">8</option><option value="16">16</option><option value="32">32</option><option value="0">Infinite</option></select></div>
           <div class="row"><label for="smooth">Smoothing</label><select id="smooth"><option value="0">None</option><option value="48">1/48 oct</option><option value="24">1/24 oct</option><option value="12">1/12 oct</option><option value="6">1/6 oct</option><option value="3">1/3 oct</option><option value="1">1/1 oct</option></select></div>
+          <div class="row"><label for="cohView">Coh. view</label><select id="cohView"><option value="lane">Lane</option><option value="overlay">Overlay</option><option value="mist">Mist</option><option value="fade">Fade</option><option value="off">Off</option></select></div>
           <div class="row"><label for="cohBlank">Coh. blanking</label><select id="cohBlank"><option value="0">Off</option><option value="0.3">Below 0.3</option><option value="0.5">Below 0.5</option><option value="0.7">Below 0.7</option></select></div>
           <div class="row"><label for="magRange">Mag range</label><select id="magRange"><option value="10">±10 dB</option><option value="20">±20 dB</option><option value="30">±30 dB</option><option value="40">±40 dB</option></select></div>
           <div class="row"><label for="magOffset">Mag offset</label><input type="number" id="magOffset" step="0.5"></div>
@@ -317,7 +325,7 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
           <div class="wm" style="font-size:28px">cle<em>v</em>er</div>
           <p class="note">New to measurement? Read the <a href="guide.html" target="_blank" rel="noopener">user guide</a>.</p>
           <p class="note">A real-time analyzer for live sound, part of <a href="https://audiogeek.sophtwhere.com/" target="_blank" rel="noopener">audiogeek</a>. Source on <a href="https://github.com/jonathan-annett/clever" target="_blank" rel="noopener">GitHub</a>, MIT licence.</p>
-          <p class="note">Keys: Space start/stop · G generator · D find delay · C capture · R reset averages · L layout · 1 / 2 / 3 top view</p>
+          <p class="note">Keys: Space start/stop · G generator · D find delay · C capture · R reset averages · L layout · S settings panel · F full screen · K coherence view · 1 / 2 / 3 top view</p>
         </div>
       </details>
     </aside>
@@ -337,7 +345,7 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
       </section>
       <section class="pane tf">
         <div class="phead"><span class="title">Magnitude</span>
-          <span class="legend"><span style="color:var(--live)">Live</span><span style="color:var(--coh)">Coherence</span></span>
+          <span class="legend"><span style="color:var(--live)">Live</span><button class="cohbtn" id="cohBtn" title="Change coherence view (K)">Coherence: <b id="cohBtnLbl">Lane</b></button></span>
           <span class="ro" id="roMag"></span></div>
         <div class="plotwrap"><canvas class="plot" id="cvMag"></canvas></div>
       </section>
@@ -463,7 +471,7 @@ const DEFAULTS = {
   measDev: 'default', measCh: 0, refDev: 'gen', refCh: 1, outDev: '', fs: 48000, polarity: false,
   genOn: false, genType: 'pink', genFreq: 1000, genLevel: -20,
   delayMs: 0,
-  fftMode: 'mtw', avg: 8, smooth: 24, cohBlank: 0.5, magRange: 20, magOffset: 0,
+  fftMode: 'mtw', avg: 8, smooth: 24, cohBlank: 0.5, cohView: 'lane', sideHidden: false, magRange: 20, magOffset: 0,
   topView: 'rta', rtaBands: '3', rtaAvg: 'fast', rtaUnits: 'dbfs', rtaTop: 0, rtaSpan: 100, peakHold: true,
   specFloor: -110, specCeil: -40,
   serial: '', calAngle: '0', applyCal: true, splOffset: null, weight: 'A', timeW: 'fast', calRef: 94,
@@ -949,30 +957,93 @@ function nearest(arrF, f){
 }
 const fmtF = f => f >= 1000 ? (f / 1000).toFixed(f >= 10000 ? 1 : 2) + ' kHz' : f.toFixed(f < 100 ? 1 : 0) + ' Hz';
 
+const COH_VIEWS = ['lane', 'overlay', 'mist', 'fade', 'off'];
+const COH_LABEL = { lane: 'Lane', overlay: 'Overlay', mist: 'Mist', fade: 'Fade', off: 'Off' };
 function drawMag(){
   const F = frame($('#cvMag')), g = F.g, R = +P.magRange, step = R <= 10 ? 2 : R <= 20 ? 6 : 10;
-  freqGrid(F); yGrid(F, -R, R, step, v => (v > 0 ? '+' : '') + v);
-  g.fillStyle = C.coh; g.font = `10px ${MONO}`; g.textAlign = 'left'; g.textBaseline = 'middle';
-  const cy = c => F.y0 + (1 - c) * (F.y1 - F.y0) * 0.36;
-  g.fillText('1.0', F.x1 + 6, cy(1)); g.fillText('0.5', F.x1 + 6, cy(0.5)); g.fillText('0', F.x1 + 6, cy(0));
-  clip(F);
-  const yOf = v => F.y1 - (v + R) / (2 * R) * (F.y1 - F.y0);
-  for (const t of TRACES) if (t.visible) series(F, t.f, t.mag, yOf, t.color, 1.4);
-  const T = S.tf;
-  if (T){
-    series(F, T.f, T.coh, cy, C.coh, 1.2);
-    const off = +P.magOffset, thr = +P.cohBlank;
-    const vals = T.mag.map(v => v + off);
-    series(F, T.f, vals, yOf, C.live, 1.8, { mask: i => !thr || T.coh[i] >= thr });
+  const mode = COH_VIEWS.includes(P.cohView) ? P.cohView : 'lane', T = S.tf, thr = +P.cohBlank, off = +P.magOffset;
+  // lane mode gives coherence its own strip at the top; magnitude uses the area below it
+  const lane = mode === 'lane' ? Math.max(34, Math.round((F.y1 - F.y0) * 0.22)) : 0;
+  const M = lane ? { ...F, y0: F.y0 + lane + 8 } : F;
+  if (lane){ g.fillStyle = C.panel; g.fillRect(F.x0, F.y0, F.x1 - F.x0, lane); }
+  freqGrid(F); yGrid(M, -R, R, step, v => (v > 0 ? '+' : '') + v);
+  if (lane){ g.strokeStyle = C.grid2; g.beginPath(); g.moveTo(F.x0, F.y0 + lane + 4.5); g.lineTo(F.x1, F.y0 + lane + 4.5); g.stroke(); }
+  const yOf = v => M.y1 - (v + R) / (2 * R) * (M.y1 - M.y0);
+  const keep = i => !thr || T.coh[i] >= thr;
+  let cy = null;
+  if (mode === 'lane') cy = c => F.y0 + 3 + (1 - c) * (lane - 6);
+  if (mode === 'overlay') cy = c => F.y0 + (1 - c) * (F.y1 - F.y0) * 0.36;
+  if (cy){
+    g.fillStyle = C.coh; g.font = `10px ${MONO}`; g.textAlign = 'left'; g.textBaseline = 'middle';
+    g.globalAlpha = mode === 'overlay' ? 0.6 : 1;
+    g.fillText('1', F.x1 + 6, cy(1)); g.fillText('.5', F.x1 + 6, cy(0.5)); g.fillText('0', F.x1 + 6, cy(0));
+    g.globalAlpha = 1;
   }
-  hoverLine(F); g.restore();
+  // coherence layer
+  clip(F);
+  if (T && mode === 'mist'){
+    // red haze over frequencies where coherence is poor; clear where it is good (one pixel column at a time, so no banding)
+    g.fillStyle = C.coh;
+    for (let x = Math.floor(F.x0); x < F.x1; x++){
+      const c = DSP.interpLog(T.f, T.coh, xf(F, x + 0.5));
+      const a = (1 - Math.max(0, Math.min(1, c))) * 0.4; if (a < 0.02) continue;
+      g.globalAlpha = a; g.fillRect(x, F.y0, 1, F.y1 - F.y0);
+    }
+    g.globalAlpha = 1;
+  }
+  if (T && cy){
+    if (mode === 'lane'){
+      const base = F.y0 + lane - 3;
+      g.beginPath(); let started = false, lastX = 0;
+      for (let i = 0; i < T.f.length; i++){
+        if (T.f[i] < 18 || T.f[i] > 22000 || !isFinite(T.coh[i])) continue;
+        const x = fx(F, T.f[i]), y = cy(T.coh[i]);
+        if (!started){ g.moveTo(x, base); started = true; }
+        g.lineTo(x, y); lastX = x;
+      }
+      if (started){ g.lineTo(lastX, base); g.closePath(); g.globalAlpha = 0.22; g.fillStyle = C.coh; g.fill(); g.globalAlpha = 1; }
+      series(F, T.f, T.coh, cy, C.coh, 1.3);
+    } else {
+      g.globalAlpha = 0.5; series(F, T.f, T.coh, cy, C.coh, 1); g.globalAlpha = 1;
+    }
+  }
+  g.restore();
+  // magnitude layer, always drawn last so it sits on top
+  clip(M);
+  for (const t of TRACES) if (t.visible) series(M, t.f, t.mag, yOf, t.color, 1.4);
+  if (T){
+    const vals = T.mag.map(v => v + off);
+    if (mode === 'fade'){
+      // live trace brightness follows coherence: solid where it's trustworthy, faint where it isn't
+      g.strokeStyle = C.live; g.lineWidth = 2; g.lineCap = 'round';
+      let px = null, py = null;
+      for (let i = 0; i < T.f.length; i++){
+        const v = vals[i];
+        if (!isFinite(v) || !keep(i) || T.f[i] < 18 || T.f[i] > 22000){ px = null; continue; }
+        const x = fx(M, T.f[i]), y = yOf(v);
+        if (px != null){
+          const c = Math.max(0, Math.min(1, (T.coh[i] + T.coh[i - 1]) / 2));
+          g.globalAlpha = 0.08 + 0.92 * c * c * c;
+          g.beginPath(); g.moveTo(px, py); g.lineTo(x, y); g.stroke();
+        }
+        px = x; py = y;
+      }
+      g.globalAlpha = 1; g.lineCap = 'butt';
+    } else {
+      series(M, T.f, vals, yOf, C.bg, 5, { mask: keep });   // dark halo keeps the live line readable over anything behind it
+      series(M, T.f, vals, yOf, C.live, 1.8, { mask: keep });
+    }
+  }
+  g.restore();
+  hoverLine(F);
   // readout
   if (S.hoverF != null && T){
     const i = nearest(T.f, S.hoverF);
-    $('#roMag').textContent = `${fmtF(S.hoverF)}  ${isFinite(T.mag[i]) ? (T.mag[i] + +P.magOffset).toFixed(1) + ' dB' : '—'}  coh ${T.coh[i].toFixed(2)}`;
+    $('#roMag').textContent = `${fmtF(S.hoverF)}  ${isFinite(T.mag[i]) ? (T.mag[i] + off).toFixed(1) + ' dB' : '—'}  coh ${T.coh[i].toFixed(2)}`;
   } else $('#roMag').textContent = '';
   return F;
 }
+function cycleCohView(){ P.cohView = COH_VIEWS[(COH_VIEWS.indexOf(P.cohView) + 1) % COH_VIEWS.length]; changed(); toast('Coherence view: ' + COH_LABEL[P.cohView], 1200); }
 function drawPhase(){
   const F = frame($('#cvPhase'), { l: 46, r: 34, t: 6, b: 20 }), g = F.g;
   freqGrid(F); yGrid(F, -180, 180, 90, v => v + '°');
@@ -1460,6 +1531,10 @@ function syncUI(){
   $('#daytonGet').hidden = P.micModel !== 'dayton';
   $('#otherGet').hidden = P.micModel !== 'other';
   document.querySelector('.app').classList.toggle('rta', P.layout === 'rta');
+  document.querySelector('.app').classList.toggle('nside', !!P.sideHidden);
+  $('#sideToggle').setAttribute('aria-pressed', String(!P.sideHidden));
+  $('#cohBtnLbl').textContent = COH_LABEL[P.cohView] || 'Lane';
+  set('cohView', P.cohView);
   $('#layoutBtn').textContent = P.layout === 'rta' ? 'ALL PANES' : 'RTA ONLY';
   const okSerial = serialDigits().length === 7;
   $('#calLink').hidden = !okSerial;
@@ -1507,6 +1582,7 @@ bind('fftMode', 'fftMode', { after: () => { if (S.running) buildAnalysis(); } })
 bind('avg', 'avg', { num: true });
 bind('smooth', 'smooth', { num: true });
 bind('cohBlank', 'cohBlank', { num: true });
+bind('cohView', 'cohView');
 bind('magRange', 'magRange', { num: true });
 bind('magOffset', 'magOffset', { num: true });
 bind('rtaBands', 'rtaBands', { after: buildRtaBands });
@@ -1563,7 +1639,20 @@ $('#traceFile').onchange = e => { for (const f of e.target.files){ const r = new
 $('#btnDeck').onclick = deckConnect;
 $('#topDeck').onclick = () => { if (!deck.dev) deckConnect(); else { P.showConsole = !P.showConsole; changed(); } };
 function drawer(open){ $('#side').classList.toggle('open', open); $('#scrim').hidden = !open; }
-$('#sideToggle').onclick = () => drawer(!$('#side').classList.contains('open'));
+const narrow = () => matchMedia('(max-width: 900px)').matches;
+function toggleSide(){
+  if (narrow()) drawer(!$('#side').classList.contains('open'));
+  else { P.sideHidden = !P.sideHidden; changed(); }
+}
+$('#sideToggle').onclick = toggleSide;
+function toggleFullscreen(){
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  else document.documentElement.requestFullscreen?.().catch(() => toast('Full screen is not available here.'));
+}
+$('#fsBtn').onclick = toggleFullscreen;
+$('#fsBtn').hidden = !document.fullscreenEnabled;
+document.addEventListener('fullscreenchange', () => { S.dirty = true; });
+$('#cohBtn').onclick = cycleCohView;
 $('#scrim').onclick = () => drawer(false);
 function toggleLayout(){ P.layout = P.layout === 'rta' ? 'full' : 'rta'; if (P.layout === 'rta') P.topView = 'rta'; changed(); }
 $('#layoutBtn').onclick = toggleLayout;
@@ -1593,6 +1682,9 @@ document.addEventListener('keydown', e => {
   else if (k === 'c') capture();
   else if (k === 'r'){ resetAverages(); toast('Averages reset'); }
   else if (k === 'l') toggleLayout();
+  else if (k === 's') toggleSide();
+  else if (k === 'f') toggleFullscreen();
+  else if (k === 'k') cycleCohView();
   else if (k === '1' || k === '2' || k === '3'){ P.topView = ['rta', 'spec', 'ir'][+k - 1]; changed(); }
 });
 
