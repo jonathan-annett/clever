@@ -93,6 +93,15 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .check{display:flex;gap:8px;align-items:center;color:var(--dim);font-size:13px;cursor:pointer}
 .check input{accent-color:var(--accent)}
 .note{font-size:12px;color:var(--faint);line-height:1.45}
+.vrules summary{padding:4px 0!important;font-size:11px!important}
+.vrules .vr{margin:8px 0 0;padding-top:6px;border-top:1px solid var(--line)}
+.vrules .vr-g{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-top:4px}
+.vrules .vr-g label{display:grid;gap:2px;font-size:10px;color:var(--faint)}
+.vrules .vr-row{display:grid;grid-template-columns:1fr 64px;gap:8px;align-items:center;margin-top:6px;font-size:12px;color:var(--dim)}
+.vrules input[type=number]{padding:3px 4px;font-size:12px;-moz-appearance:textfield}
+.vrules input[type=number]::-webkit-inner-spin-button,.vrules input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+.vrules input.chg{border-color:var(--accent)}
+.vrules .vr-hint{margin:2px 0 4px}
 .note a{color:var(--live)}
 .readout{font:13px var(--mono);color:var(--fg)}
 .bigdelay{font:600 22px var(--mono);font-variant-numeric:tabular-nums}
@@ -253,6 +262,9 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
           <div class="row"><label for="voiceGate">Speech gate</label><input type="number" id="voiceGate" step="1"></div>
           <div class="btns"><button class="btn" id="voiceGateNoise">Set gate from noise</button></div>
           <div class="row"><label for="voiceHpf">High-pass slope</label><select id="voiceHpf"><option value="2">12 dB/oct</option><option value="3">18 dB/oct</option><option value="4">24 dB/oct</option></select></div>
+          <div class="row"><label for="voiceSens">Sensitivity</label><select id="voiceSens"><option value="1.5">Gentle (fewer suggestions)</option><option value="1.25">Relaxed</option><option value="1">Normal</option><option value="0.75">Strict (more suggestions)</option></select></div>
+          <div class="row"><label for="voiceDepth">Cut depth</label><select id="voiceDepth"><option value="1">Full</option><option value="0.75">75 %</option><option value="0.5">Half</option><option value="0.25">Quarter</option></select></div>
+          <details class="vrules"><summary>Rules</summary><div id="voiceRules"></div></details>
           <p class="note">Checks a vocal against the shape of natural speech and suggests cuts for the channel strip: a high-pass for pops and rumble, low-mid cuts for proximity, notches for resonances, and gentle cuts for nasal, harsh or sibilant tones. It only listens while someone is speaking above the gate. Suggestions are cuts only, and it warns when they would cost enough speech level that you'd need more gain.</p>
         </div>
       </details>
@@ -564,7 +576,29 @@ const DSP = (() => {
   }
   // fc: centres of 1/24-octave bands; L: their levels in dB (energy). Returns the zone split, deviation
   // from the speech shape, findings with suggested cuts, the predicted curve after the cuts and their cost.
+  // every value the vocal check uses; the Voice settings panel stores overrides in P.voiceCfg
+  const VOICE_DEFAULTS = {
+    sens: 1, depth: 1, costWarn: 3, voiceLo: 100, voiceHi: 5000, hfDom: -3,
+    sub:    { on: true, thr: 6 },
+    lowmid: { on: true, lo: 150,  hi: 450,  thr: 3, max: 8, q: 1.0 },
+    nasal:  { on: true, lo: 600,  hi: 1600, thr: 4, max: 6, q: 1.4 },
+    harsh:  { on: true, lo: 2000, hi: 4500, thr: 4, max: 4, q: 1.4 },
+    sib:    { on: true, lo: 5000, hi: 9000, thr: 5, max: 6, q: 2 },
+    res:    { on: true, lo: 150,  hi: 8000, thr: 4, thrLow: 8, max: 10, count: 3 },
+    thin:   { on: true, thr: -4 },
+    dull:   { on: true, thr: -8 }
+  };
+  function voiceCfg(over){
+    const c = JSON.parse(JSON.stringify(VOICE_DEFAULTS));
+    for (const [k, v] of Object.entries(over || {})){
+      if (v && typeof v === 'object' && c[k] && typeof c[k] === 'object') Object.assign(c[k], v);
+      else if (k in c && v != null && v !== '') c[k] = v;
+    }
+    return c;
+  }
+  const hz = f => f >= 1000 ? (+(f / 1000).toFixed(1)) + ' kHz' : Math.round(f) + ' Hz';
   function voiceAnalyze(fc, L, opts = {}){
+    const c = voiceCfg(opts.cfg), T = v => v * c.sens, depth = Math.max(0.1, Math.min(1, +c.depth || 1));
     const n = fc.length, E = L.map(v => Math.pow(10, v / 10)), idx = f => { let b = 0; for (let i = 0; i < n; i++) if (Math.abs(Math.log(fc[i] / f)) < Math.abs(Math.log(fc[b] / f))) b = i; return b; };
     const range = (a, b) => { const r = []; for (let i = 0; i < n; i++) if (fc[i] >= a && fc[i] < b) r.push(i); return r; };
     const sumE = r => r.reduce((t, i) => t + E[i], 0);
@@ -573,69 +607,72 @@ const DSP = (() => {
     for (let i = 0; i < n; i++){
       let e = 0; for (let j = Math.max(0, i - 4); j <= Math.min(n - 1, i + 3); j++) e += E[j];
       S3[i] = 10 * Math.log10(e + 1e-30);
-      let m = 0, c = 0; for (let j = Math.max(0, i - 10); j <= Math.min(n - 1, i + 10); j++){ if (Math.abs(j - i) < 3) continue; m += E[j]; c++; }   // flanks only, so a peak doesn't raise its own baseline
-      M[i] = 10 * Math.log10(m / c + 1e-30);
+      let m = 0, k = 0; for (let j = Math.max(0, i - 10); j <= Math.min(n - 1, i + 10); j++){ if (Math.abs(j - i) < 3) continue; m += E[j]; k++; }   // flanks only, so a peak doesn't raise its own baseline
+      M[i] = 10 * Math.log10(m / k + 1e-30);
     }
     const ref = range(300, 2000); let off = 0; ref.forEach(i => off += S3[i] - ltass(fc[i])); off /= ref.length || 1;
     const D = new Float64Array(n); for (let i = 0; i < n; i++) D[i] = S3[i] - ltass(fc[i]) - off;
     const meanD = (a, b) => { const r = range(a, b); return r.length ? r.reduce((t, i) => t + D[i], 0) / r.length : 0; };
     const peakIn = (a, b) => { let best = -1; for (const i of range(a, b)) if (best < 0 || D[i] > D[best]) best = i; return best; };
-    const eSub = sumE(range(0, 100)), eCore = sumE(range(100, 5000)), eHi = sumE(range(5000, 1e9)), eAll = eSub + eCore + eHi || 1;
+    const eSub = sumE(range(0, c.voiceLo)), eCore = sumE(range(c.voiceLo, c.voiceHi)), eHi = sumE(range(c.voiceHi, 1e9)), eAll = eSub + eCore + eHi || 1;
     const split = { sub: eSub / eAll, core: eCore / eAll, hi: eHi / eAll };
     const F = [], cuts = [];
-    const r05 = v => Math.round(v * 2) / 2;
+    const r05 = v => Math.round(v * 2) / 2, cut = (ex, max) => -Math.max(0.5, r05(Math.min(ex, max) * depth));
     const add = (kind, sev, title, detail, flt) => { F.push({ kind, sev, title, detail, filter: flt || null }); if (flt) cuts.push(flt); };
-    // energy mostly above 5 kHz: something is wrong, not an EQ job
-    if (10 * Math.log10((eHi + 1e-30) / (eCore + 1e-30)) > -3)
-      add('hf', 'bad', 'Most of the energy is above 5 kHz', 'A voice should sit mostly between 100 Hz and 5 kHz. Check for hiss, a ringing frequency, sibilance, a faulty or wrong mic, or a very bright EQ before cutting anything.');
-    // pops and rumble below 100 Hz
-    const dSub = meanD(50, 100);
-    if (dSub > 6){
-      const f = meanD(125, 160) > 8 ? 140 : meanD(100, 125) > 6 ? 120 : 100;
-      add('sub', dSub > 12 ? 'bad' : 'warn', 'Rumble and pops below 100 Hz', `About ${dSub.toFixed(0)} dB more low end than a voice has: handling noise, breath pops or proximity effect.`, { type: 'hpf', f, order: opts.hpfOrder || 3 });
+    // energy mostly above the voice zone: something is wrong, not an EQ job
+    if (10 * Math.log10((eHi + 1e-30) / (eCore + 1e-30)) > T(c.hfDom))
+      add('hf', 'bad', `Most of the energy is above ${hz(c.voiceHi)}`, `A voice should sit mostly between ${hz(c.voiceLo)} and ${hz(c.voiceHi)}. Check for hiss, a ringing frequency, sibilance, a faulty or wrong mic, or a very bright EQ before cutting anything.`);
+    // pops and rumble
+    const dSub = meanD(50, c.voiceLo);
+    if (c.sub.on && dSub > T(c.sub.thr)){
+      const f = meanD(125, 160) > T(c.sub.thr) + 2 ? 140 : meanD(100, 125) > T(c.sub.thr) ? 120 : Math.max(80, Math.round(c.voiceLo));
+      add('sub', dSub > 2 * T(c.sub.thr) ? 'bad' : 'warn', `Rumble and pops below ${hz(c.voiceLo)}`, `About ${dSub.toFixed(0)} dB more low end than a voice has: handling noise, breath pops or proximity effect.`, { type: 'hpf', f, order: opts.hpfOrder || 3 });
     }
     // proximity / boxiness
-    const dLM = meanD(150, 450);
-    if (dLM > 3){
-      const i = peakIn(150, 450);
-      add('lowmid', dLM > 6 ? 'bad' : 'warn', 'Low-mid build-up', `${dLM.toFixed(1)} dB more 150–450 Hz than a natural voice: the talker is close to the mic (proximity effect) or the sound is boxy.`, { type: 'bell', f: Math.round(fc[i]), g: -r05(Math.min(dLM + 1, 8)), q: 1.0 });
+    const lm = c.lowmid, dLM = meanD(lm.lo, lm.hi);
+    if (lm.on && dLM > T(lm.thr)){
+      const i = peakIn(lm.lo, lm.hi);
+      add('lowmid', dLM > 2 * T(lm.thr) ? 'bad' : 'warn', 'Low-mid build-up', `${dLM.toFixed(1)} dB more ${hz(lm.lo)}–${hz(lm.hi)} than a natural voice: the talker is close to the mic (proximity effect) or the sound is boxy.`, { type: 'bell', f: Math.round(fc[i]), g: cut(dLM + 1, lm.max), q: lm.q });
     }
-    const dNas = meanD(600, 1600);
-    if (dNas > 4){ const i = peakIn(600, 1600); add('nasal', 'warn', 'Nasal or honky', `${dNas.toFixed(1)} dB extra around ${fc[i] >= 1000 ? (fc[i] / 1000).toFixed(1) + ' kHz' : Math.round(fc[i]) + ' Hz'}.`, { type: 'bell', f: Math.round(fc[i]), g: -r05(Math.min(dNas, 6)), q: 1.4 }); }
-    const dHar = meanD(2000, 4500);
-    if (dHar > 4){ const i = peakIn(2000, 4500); add('harsh', 'warn', 'Harsh presence', `${dHar.toFixed(1)} dB extra in 2–4.5 kHz. This is where intelligibility lives, so cut gently.`, { type: 'bell', f: Math.round(fc[i]), g: -r05(Math.min(dHar, 4)), q: 1.4 }); }
-    const dSib = meanD(5000, 9000);
-    if (dSib > 5){ const i = peakIn(5000, 9000); add('sib', 'warn', 'Sibilance', `${dSib.toFixed(1)} dB extra in 5–9 kHz. A de-esser is the better fix if the desk has one.`, { type: 'bell', f: Math.round(fc[i]), g: -r05(Math.min(dSib, 6)), q: 2 }); }
+    const na = c.nasal, dNas = meanD(na.lo, na.hi);
+    if (na.on && dNas > T(na.thr)){ const i = peakIn(na.lo, na.hi); add('nasal', 'warn', 'Nasal or honky', `${dNas.toFixed(1)} dB extra around ${hz(fc[i])}.`, { type: 'bell', f: Math.round(fc[i]), g: cut(dNas, na.max), q: na.q }); }
+    const ha = c.harsh, dHar = meanD(ha.lo, ha.hi);
+    if (ha.on && dHar > T(ha.thr)){ const i = peakIn(ha.lo, ha.hi); add('harsh', 'warn', 'Harsh presence', `${dHar.toFixed(1)} dB extra in ${hz(ha.lo)}–${hz(ha.hi)}. This is where intelligibility lives, so cut gently.`, { type: 'bell', f: Math.round(fc[i]), g: cut(dHar, ha.max), q: ha.q }); }
+    const si = c.sib, dSib = meanD(si.lo, si.hi);
+    if (si.on && dSib > T(si.thr)){ const i = peakIn(si.lo, si.hi); add('sib', 'warn', 'Sibilance', `${dSib.toFixed(1)} dB extra in ${hz(si.lo)}–${hz(si.hi)}. A de-esser is the better fix if the desk has one.`, { type: 'bell', f: Math.round(fc[i]), g: cut(dSib, si.max), q: si.q }); }
     // narrow resonances (often the feedback-prone ones too); stricter below 400 Hz where voice harmonics ripple
-    const peaks = [];
-    for (let i = 1; i < n - 1; i++){
-      const f = fc[i]; if (f < 150 || f > 8000) continue;
-      const p = L[i] - M[i]; if (p < (f < 400 ? 8 : 4) || L[i] < L[i - 1] || L[i] < L[i + 1]) continue;
-      peaks.push({ i, p });
-    }
-    peaks.sort((a, b) => b.p - a.p);
-    const taken = [];
-    for (const pk of peaks){
-      if (taken.length >= 3) break;
-      if (taken.some(t => Math.abs(pk.i - t.i) < 8)) continue;
-      let lo = pk.i, hi = pk.i; while (lo > 0 && L[lo - 1] > L[pk.i] - 3) lo--; while (hi < n - 1 && L[hi + 1] > L[pk.i] - 3) hi++;
-      const bw = Math.max(1, hi - lo + 1) / 24, q = Math.min(10, Math.max(2, Math.sqrt(Math.pow(2, bw)) / (Math.pow(2, bw) - 1)));
-      taken.push(pk);
-      const f = fc[pk.i];
-      add('res', pk.p > 9 ? 'bad' : 'warn', `Resonance at ${f >= 1000 ? (f / 1000).toFixed(2) + ' kHz' : Math.round(f) + ' Hz'}`, `A narrow peak ${pk.p.toFixed(1)} dB above its surroundings. Narrow peaks like this are often where feedback starts.`, { type: 'bell', f: Math.round(f), g: -r05(Math.min(pk.p, 10)), q: Math.round(q * 10) / 10 });
+    const rs = c.res;
+    if (rs.on){
+      const peaks = [];
+      for (let i = 1; i < n - 1; i++){
+        const f = fc[i]; if (f < rs.lo || f > rs.hi) continue;
+        const p = L[i] - M[i]; if (p < T(f < 400 ? rs.thrLow : rs.thr) || L[i] < L[i - 1] || L[i] < L[i + 1]) continue;
+        peaks.push({ i, p });
+      }
+      peaks.sort((a, b) => b.p - a.p);
+      const taken = [];
+      for (const pk of peaks){
+        if (taken.length >= rs.count) break;
+        if (taken.some(t => Math.abs(pk.i - t.i) < 8)) continue;
+        let lo = pk.i, hi = pk.i; while (lo > 0 && L[lo - 1] > L[pk.i] - 3) lo--; while (hi < n - 1 && L[hi + 1] > L[pk.i] - 3) hi++;
+        const bw = Math.max(1, hi - lo + 1) / 24, q = Math.min(10, Math.max(2, Math.sqrt(Math.pow(2, bw)) / (Math.pow(2, bw) - 1)));
+        taken.push(pk);
+        const f = fc[pk.i];
+        add('res', pk.p > 2 * T(rs.thr) + 1 ? 'bad' : 'warn', `Resonance at ${f >= 1000 ? (f / 1000).toFixed(2) + ' kHz' : Math.round(f) + ' Hz'}`, `A narrow peak ${pk.p.toFixed(1)} dB above its surroundings. Narrow peaks like this are often where feedback starts.`, { type: 'bell', f: Math.round(f), g: cut(pk.p, rs.max), q: Math.round(q * 10) / 10 });
+      }
     }
     // things to fix with the mic, not with boosts
-    if (dSub <= 6 && meanD(120, 300) < -4) add('thin', 'info', 'Thin low end', 'Less body than a natural voice: the talker may be far from the mic, or the high-pass is set too high. Moving the mic closer beats boosting.');
-    if (meanD(2000, 5000) < -8) add('dull', 'info', 'Lacking presence', 'Less 2–5 kHz than a natural voice: the talker may be off-axis or far away. Aim the mic at the mouth rather than boosting.');
+    if (c.thin.on && !(c.sub.on && dSub > T(c.sub.thr)) && meanD(120, 300) < T(c.thin.thr)) add('thin', 'info', 'Thin low end', 'Less body than a natural voice: the talker may be far from the mic, or the high-pass is set too high. Moving the mic closer beats boosting.');
+    if (c.dull.on && meanD(2000, 5000) < T(c.dull.thr)) add('dull', 'info', 'Lacking presence', 'Less 2–5 kHz than a natural voice: the talker may be off-axis or far away. Aim the mic at the mouth rather than boosting.');
     // predicted curve after the cuts, and what they cost in the speech-importance band
-    const C = new Float64Array(n); for (let i = 0; i < n; i++) for (const c of cuts) C[i] += filterDb(c, fc[i]);
+    const C = new Float64Array(n); for (let i = 0; i < n; i++) for (const ct of cuts) C[i] += filterDb(ct, fc[i]);
     const siiLevel = extra => { let e = 0; for (const [f, w] of SII_W){ const i = idx(f); e += w * Math.pow(10, (S3[i] + (extra ? extra(i) : 0)) / 10); } return 10 * Math.log10(e); };
     const base = siiLevel();
     for (const x of F) if (x.filter) x.cost = base - siiLevel(i => filterDb(x.filter, fc[i]));
     const cost = base - siiLevel(i => C[i]);
-    return { split, D, S3, off, target: fc.map(f => ltass(f) + off), findings: F, cuts, predicted: Array.from(S3, (v, i) => v + C[i]), cost };
+    return { split, D, S3, off, target: fc.map(f => ltass(f) + off), findings: F, cuts, predicted: Array.from(S3, (v, i) => v + C[i]), cost, costWarn: c.costWarn, cfg: c };
   }
-  return { fft, hann, prefix, cum, gccPhat, aWeight, cWeight, interpLog, parseCal, kWeight, voiceAnalyze, filterDb };
+  return { fft, hann, prefix, cum, gccPhat, aWeight, cWeight, interpLog, parseCal, kWeight, voiceAnalyze, filterDb, VOICE_DEFAULTS, voiceCfg };
 })();
 if (typeof module !== 'undefined') module.exports = DSP;
 </script>
@@ -654,7 +691,7 @@ const DEFAULTS = {
   genOn: false, genType: 'pink', genFreq: 1000, genLevel: -20,
   delayMs: 0,
   fftMode: 'mtw', avg: 8, smooth: 24, cohBlank: 0.5, cohView: 'lane', sideHidden: false, magRange: 20, magOffset: 0,
-  topView: 'rta', levMetric: 'lufs', levSpan: 1, levRange: 24, levRefWin: 10, levRef: {}, levSrc: 'meas', bandsSrc: 'meas', bandsFloor: -90, bandsCeil: -30, bandIgnore: [], bandIgnoreHz: null, bandPreset: 'iso31', bandCustom: '', bandTallySec: 10, bandGate: -60, thru: false, thruLevel: 0, refAux: false, monMode: 'off', monLevel: -20, voiceSrc: 'ref', voiceTau: 30, voiceGate: -50, voiceHpf: 3, voicePanel: true, monOut: '', rtaBands: '3', rtaAvg: 'fast', rtaUnits: 'dbfs', rtaTop: 0, rtaSpan: 100, peakHold: true,
+  topView: 'rta', levMetric: 'lufs', levSpan: 1, levRange: 24, levRefWin: 10, levRef: {}, levSrc: 'meas', bandsSrc: 'meas', bandsFloor: -90, bandsCeil: -30, bandIgnore: [], bandIgnoreHz: null, bandPreset: 'iso31', bandCustom: '', bandTallySec: 10, bandGate: -60, thru: false, thruLevel: 0, refAux: false, monMode: 'off', monLevel: -20, voiceSrc: 'ref', voiceTau: 30, voiceGate: -50, voiceHpf: 3, voiceCfg: {}, voicePanel: true, monOut: '', rtaBands: '3', rtaAvg: 'fast', rtaUnits: 'dbfs', rtaTop: 0, rtaSpan: 100, peakHold: true,
   specFloor: -110, specCeil: -40,
   serial: '', calAngle: '0', applyCal: true, splOffset: null, weight: 'A', timeW: 'fast', calRef: 94,
   micModel: 'umik', calActive: null, layout: null,
@@ -1889,7 +1926,7 @@ function pushVoice(dt){
 function voiceCompute(L){
   const V = VOICE[voiceSrc()];
   L = L || Array.from(V.E, e => 10 * Math.log10(e + 1e-20));
-  S.voiceLast = V.count ? DSP.voiceAnalyze(VOICE_FC, L, { hpfOrder: +P.voiceHpf }) : null;
+  S.voiceLast = V.count ? DSP.voiceAnalyze(VOICE_FC, L, { hpfOrder: +P.voiceHpf, cfg: P.voiceCfg }) : null;
   S.voiceAnT = performance.now();
   return S.voiceLast;
 }
@@ -1969,7 +2006,7 @@ function voicePanel(R, V, ok){
       const what = !f ? '' : f.type === 'hpf' ? `High-pass at <b>${f.f} Hz</b>, ${f.order * 6} dB/oct` : `Cut <b>${Math.abs(f.g)} dB</b> at <b>${fmtHz(f.f)}</b>, Q ${f.q}`;
       h += `<div class="vp-item vp-${x.sev}"><div class="vp-h">${num ? `<i>${num}</i>` : ''}${esc(x.title)}</div>${what ? `<div class="vp-fix">${what}${f.type !== 'hpf' && x.cost > 0.05 ? ` <span class="vp-cost">costs ${x.cost.toFixed(1)} dB of speech</span>` : ''}</div>` : ''}<div class="vp-d">${esc(x.detail)}</div></div>`;
     }
-    if (R.cuts.length) h += R.cost > 3
+    if (R.cuts.length) h += R.cost > R.costWarn
       ? `<p class="vp-warn">Together these cuts take <b>${R.cost.toFixed(1)} dB</b> out of the speech band, so you'd need about that much more gain, which eats feedback margin. Start with the first one or two.</p>`
       : `<p class="vp-note">Together the cuts cost ${R.cost.toFixed(1)} dB of speech level. The dashed line shows the result.</p>`;
   }
@@ -2398,6 +2435,7 @@ function syncUI(){
   $('#voiceSrcBtn').textContent = ({ aux: 'Solo', ref: 'Ref in', meas: 'Mic in' })[voiceSrc()] + ' ▸';
   $('#mtAux').hidden = !S.auxOn; $('#refAuxRow').hidden = P.refDev === 'gen';
   ['voiceSrc', 'voiceTau', 'voiceGate', 'voiceHpf'].forEach(k => set(k, P[k]));
+  { const c = DSP.voiceCfg(P.voiceCfg); $('#voiceSens').value = String(c.sens); $('#voiceDepth').value = String(c.depth); voiceRulesSync(); }
   S.voicePanelT = 0;
   $('#levMetricBtn').textContent = levShort() + ' ▸';
   $('#levZoomBtn').textContent = levSpanLabel();
@@ -2471,6 +2509,64 @@ bind('bandGate', 'bandGate', { num: true });
 bind('levSrc', 'levSrc');
 bind('voiceSrc', 'voiceSrc'); bind('voiceTau', 'voiceTau', { num: true }); bind('voiceGate', 'voiceGate', { num: true }); bind('voiceHpf', 'voiceHpf', { num: true });
 $('#voiceGateNoise').onclick = voiceGateFromNoise;
+// Voice rules: every threshold and range the vocal check uses, stored as overrides of DSP.VOICE_DEFAULTS in P.voiceCfg
+const VOICE_RULES = [
+  ['sub',    'Pops / rumble', { thr: 1 }],
+  ['lowmid', 'Low-mid',       { lo: 1, hi: 1, thr: 1, max: 1, q: 1 }],
+  ['nasal',  'Nasal',         { lo: 1, hi: 1, thr: 1, max: 1, q: 1 }],
+  ['harsh',  'Harsh',         { lo: 1, hi: 1, thr: 1, max: 1, q: 1 }],
+  ['sib',    'Sibilance',     { lo: 1, hi: 1, thr: 1, max: 1, q: 1 }],
+  ['res',    'Resonances',    { lo: 1, hi: 1, thr: 1, max: 1 }],
+  ['thin',   'Thin (advice)', { thr: 1 }],
+  ['dull',   'Dull (advice)', { thr: 1 }]
+];
+const VOICE_GLOBALS = [
+  ['res.thrLow', 'Resonance trigger below 400 Hz', 'dB'],
+  ['res.count', 'Most resonance notches', ''],
+  ['voiceLo', 'Voice zone starts at', 'Hz; rumble is below it'],
+  ['voiceHi', 'Voice zone ends at', 'Hz'],
+  ['hfDom', 'Flag energy above the zone when within', 'dB of the zone'],
+  ['costWarn', 'Warn when cuts cost more than', 'dB of speech']
+];
+function voiceCfgGet(path){ const c = DSP.voiceCfg(P.voiceCfg), [a, b] = path.split('.'); return b ? c[a][b] : c[a]; }
+function voiceCfgSet(path, v){
+  const [a, b] = path.split('.'), D = DSP.VOICE_DEFAULTS, def = b ? D[a][b] : D[a], o = P.voiceCfg || (P.voiceCfg = {});
+  if (b){ o[a] = o[a] || {}; if (v === def) delete o[a][b]; else o[a][b] = v; if (!Object.keys(o[a]).length) delete o[a]; }
+  else if (v === def) delete o[a]; else o[a] = v;
+  S.voicePanelT = 0; voiceCompute(); changed();
+}
+function voiceRulesBuild(){
+  const cols = [['lo', 'From Hz'], ['hi', 'To Hz'], ['thr', 'Trigger dB'], ['max', 'Max cut'], ['q', 'Q']];
+  let h = '<p class="note vr-hint">Trigger: how far the voice must differ from natural speech before the rule fires (Sensitivity multiplies it). Max cut: the deepest cut it will suggest (Cut depth scales it). Changed values are outlined.</p>';
+  for (const [k, name, has] of VOICE_RULES){
+    h += `<div class="vr"><label class="check"><input type="checkbox" data-vr="${k}.on">${name}</label><div class="vr-g">`;
+    for (const [c, lab] of cols) if (has[c]) h += `<label>${lab}<input type="number" step="${c === 'q' ? 0.1 : c === 'lo' || c === 'hi' ? 10 : 0.5}" data-vr="${k}.${c}"></label>`;
+    h += '</div></div>';
+  }
+  h += '<div class="vr">';
+  for (const [k, label, unit] of VOICE_GLOBALS) h += `<div class="vr-row"><span>${label}${unit ? ' (' + unit + ')' : ''}</span><input type="number" step="${/voice/.test(k) ? 10 : k === 'res.count' ? 1 : 0.5}" data-vr="${k}"></div>`;
+  h += '</div><div class="btns" style="margin-top:10px"><button class="btn" id="voiceRulesReset">Reset to defaults</button></div>';
+  $('#voiceRules').innerHTML = h;
+  $('#voiceRules').querySelectorAll('[data-vr]').forEach(el => el.addEventListener('change', () => {
+    const path = el.dataset.vr;
+    if (el.type === 'checkbox') return voiceCfgSet(path, el.checked);
+    const v = parseFloat(el.value); if (!isFinite(v)){ voiceRulesSync(); return; }
+    voiceCfgSet(path, v);
+  }));
+  $('#voiceRulesReset').onclick = () => { P.voiceCfg = {}; S.voicePanelT = 0; voiceCompute(); changed(); toast('Voice rules back to defaults'); };
+}
+function voiceRulesSync(){
+  const root = $('#voiceRules'); if (!root || !root.firstChild) return;
+  const D = DSP.VOICE_DEFAULTS;
+  root.querySelectorAll('[data-vr]').forEach(el => {
+    const path = el.dataset.vr, [a, b] = path.split('.'), v = voiceCfgGet(path), def = b ? D[a][b] : D[a];
+    if (el.type === 'checkbox') el.checked = !!v; else if (document.activeElement !== el) el.value = v;
+    el.classList.toggle('chg', v !== def);
+  });
+}
+voiceRulesBuild(); voiceRulesSync();
+$('#voiceSens').onchange = e => voiceCfgSet('sens', +e.target.value);
+$('#voiceDepth').onchange = e => voiceCfgSet('depth', +e.target.value);
 $('#voiceResetBtn').onclick = () => { voiceReset(); toast('Voice check restarted'); };
 $('#voiceSrcBtn').onclick = () => { const order = (S.auxOn || P.refAux) ? ['aux', 'ref', 'meas'] : ['ref', 'meas']; P.voiceSrc = order[(order.indexOf(voiceSrc()) + 1) % order.length]; changed(); };
 $('#voicePanelBtn').onclick = () => { P.voicePanel = !P.voicePanel; changed(); };
