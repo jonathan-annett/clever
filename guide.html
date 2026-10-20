@@ -314,6 +314,14 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
       <h3>Option B: external reference (how pros set it up)</h3>
       <p>Use an audio interface with at least two inputs. Send the signal (pink noise from clever, or music) into the desk. Patch a feed of the signal into interface input 1 at the point where your measurement should start, often the desk's output before the system processor. Connect the measurement mic to input 2. In clever, set <span class="ui">Measurement</span> to the interface, channel 2, and <span class="ui">Reference</span> to the interface, channel 1.</p>
       <p>Now the transfer function shows only what happens <em>after</em> the reference point, so you can measure the processor, amps and speakers without the desk's channel EQ getting in the way. It also works with music during a show.</p>
+      <h3>Option C: play your own music through clever</h3>
+      <p>No desk handy? Plug a music source (a CD player, a phone, a laptop) into the reference input of your interface, set <span class="ui">Reference</span> to that device, and tick <span class="ui">Pass the reference through to the output</span>. clever plays the reference straight to the <span class="ui">Output</span> device, so you can feed the amp directly, and measures with the music as the reference. It replaces the generator, which is muted while pass-through is on.</p>
+      <ul>
+        <li>For a stereo source, choose <span class="ui">Ref channel › L+R (mono sum)</span> so the reference matches what both speakers play. This needs the source on its own device.</li>
+        <li>If the source and the mic share one interface, only the reference channel is passed through, so the mic never reaches the amp. Never pass through a live mic.</li>
+        <li>The browser adds some output latency (shown under the checkbox). Find delay measures the whole round trip, from the captured reference through the browser, the amp and the air to the mic, so press it once the music is playing.</li>
+        <li>Music works as a reference, but quiet passages and sparse arrangements lower coherence. Busy, full-range music gives the steadiest traces.</li>
+      </ul>
       <h3>Then, every time</h3>
       <ol class="steps">
         <li><span>Turn the generator on with a low <span class="ui">Level</span>, around −30 dBFS, and bring it up gently until the mic's <span class="ui">MEAS</span> meter sits around −30 to −15 dBFS.</span></li>

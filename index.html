@@ -203,7 +203,13 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
           <div class="row"><label for="measDev">Measurement</label><select id="measDev"></select></div>
           <div class="row"><label for="measCh">Meas channel</label><select id="measCh"><option value="0">Channel 1</option><option value="1">Channel 2</option></select></div>
           <div class="row"><label for="refDev">Reference</label><select id="refDev"></select></div>
-          <div class="row" id="refChRow"><label for="refCh">Ref channel</label><select id="refCh"><option value="0">Channel 1</option><option value="1">Channel 2</option></select></div>
+          <div class="row" id="refChRow"><label for="refCh">Ref channel</label><select id="refCh"><option value="0">Channel 1</option><option value="1">Channel 2</option><option value="sum">L+R (mono sum)</option></select></div>
+          <div id="thruBox" style="display:grid;gap:9px">
+            <label class="check"><input type="checkbox" id="thru">Pass the reference through to the output</label>
+            <div class="row" id="thruLevelRow"><label for="thruLevel">Thru level <span class="readout" id="thruLevelV"></span></label><input type="range" id="thruLevel" min="-40" max="6" step="0.5"></div>
+            <p class="note" id="thruInfo"></p>
+            <p class="note">Plays the reference input (a CD player, a laptop, a desk send) straight to the Output device above, so the amp can be fed without a desk. It replaces the generator. If the reference and mic share an interface, only the reference channel is passed. Never pass through a live mic.</p>
+          </div>
           <div class="row" id="outRow"><label for="outDev">Output</label><select id="outDev"></select></div>
           <div class="row"><label for="fs">Sample rate</label><select id="fs"><option>44100</option><option>48000</option><option>96000</option></select></div>
           <label class="check"><input type="checkbox" id="polarity">Invert measurement polarity</label>
@@ -534,7 +540,7 @@ const DEFAULTS = {
   genOn: false, genType: 'pink', genFreq: 1000, genLevel: -20,
   delayMs: 0,
   fftMode: 'mtw', avg: 8, smooth: 24, cohBlank: 0.5, cohView: 'lane', sideHidden: false, magRange: 20, magOffset: 0,
-  topView: 'rta', levMetric: 'lufs', levSpan: 1, levRange: 24, levRefWin: 10, levRef: {}, levSrc: 'meas', bandsSrc: 'meas', bandsFloor: -90, bandsCeil: -30, bandIgnore: [], bandIgnoreHz: null, bandPreset: 'iso31', bandCustom: '', bandTallySec: 10, bandGate: -60, monMode: 'off', monLevel: -20, monOut: '', rtaBands: '3', rtaAvg: 'fast', rtaUnits: 'dbfs', rtaTop: 0, rtaSpan: 100, peakHold: true,
+  topView: 'rta', levMetric: 'lufs', levSpan: 1, levRange: 24, levRefWin: 10, levRef: {}, levSrc: 'meas', bandsSrc: 'meas', bandsFloor: -90, bandsCeil: -30, bandIgnore: [], bandIgnoreHz: null, bandPreset: 'iso31', bandCustom: '', bandTallySec: 10, bandGate: -60, thru: false, thruLevel: 0, monMode: 'off', monLevel: -20, monOut: '', rtaBands: '3', rtaAvg: 'fast', rtaUnits: 'dbfs', rtaTop: 0, rtaSpan: 100, peakHold: true,
   specFloor: -110, specCeil: -40,
   serial: '', calAngle: '0', applyCal: true, splOffset: null, weight: 'A', timeW: 'fast', calRef: 94,
   micModel: 'umik', calActive: null, layout: null,
@@ -678,9 +684,22 @@ class Gen extends AudioWorkletProcessor{
 registerProcessor('ca-gen',Gen);`;
 const workletURL = URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' }));
 
+const thruActive = () => !!P.thru && P.refDev !== 'gen';
+function thruApply(now){
+  const g = S.thruG; if (!g || !S.ctx) return;
+  const v = thruActive() ? Math.pow(10, P.thruLevel / 20) : 0;
+  if (now) g.gain.value = v; else g.gain.setTargetAtTime(v, S.ctx.currentTime, 0.05);
+  sendGen();
+}
+function thruInfo(){
+  const el = $('#thruInfo'); if (!el) return;
+  if (!thruActive() || !S.ctx){ el.textContent = ''; return; }
+  const ms = ((S.ctx.baseLatency || 0) + (S.ctx.outputLatency || 0)) * 1000;
+  el.textContent = (ms ? `Browser output latency about ${ms.toFixed(0)} ms. ` : '') + 'Find delay measures the whole round trip, so press it after starting playback.';
+}
 function sendGen(){
   if (!S.gen) return;
-  S.gen.port.postMessage({ on: !!P.genOn, type: P.genType, freq: +P.genFreq, amp: Math.pow(10, P.genLevel / 20) });
+  S.gen.port.postMessage({ on: !!P.genOn && !thruActive(), type: P.genType, freq: +P.genFreq, amp: Math.pow(10, P.genLevel / 20) });
 }
 
 /* ---------------- devices ---------------- */
@@ -737,22 +756,39 @@ async function start(){
     const cap = new AudioWorkletNode(ctx, 'ca-cap', { numberOfInputs: 2, numberOfOutputs: 1, outputChannelCount: [1], channelCount: 1, channelCountMode: 'explicit', channelInterpretation: 'discrete' });
     const sink = ctx.createGain(); sink.gain.value = 0; cap.connect(sink).connect(ctx.destination);
 
-    const splitters = new Map();
-    const splitterFor = async id => {
-      if (splitters.has(id)) return splitters.get(id);
+    const inputs = new Map();
+    const inputFor = async id => {
+      if (inputs.has(id)) return inputs.get(id);
       const st = await openStream(id); S.streams.push(st);
       const src = ctx.createMediaStreamSource(st), sp = ctx.createChannelSplitter(2);
-      src.connect(sp); splitters.set(id, sp); return sp;
+      src.connect(sp); const io = { src, sp }; inputs.set(id, io); return io;
     };
+    const splitterFor = async id => (await inputFor(id)).sp;
     const ms = await splitterFor(P.measDev);
     S.measLabel = S.streams[0]?.getAudioTracks()[0]?.label || '';
     ms.connect(cap, Math.min(1, +P.measCh), 1);
     S.srcMeas = { node: ms, out: Math.min(1, +P.measCh) };
     if (P.refDev === 'gen'){ gen.connect(cap, 0, 0); S.srcRef = { node: gen, out: 0 }; }
-    else { const rs = await splitterFor(P.refDev); rs.connect(cap, Math.min(1, +P.refCh), 0); S.srcRef = { node: rs, out: Math.min(1, +P.refCh) }; }
+    else {
+      const shared = P.refDev === P.measDev, io = await inputFor(P.refDev);
+      if (P.refCh === 'sum' && !shared){
+        // L+R mono sum for a stereo source (e.g. a CD player feeding both speakers)
+        const mono = ctx.createGain(); mono.channelCount = 1; mono.channelCountMode = 'explicit'; mono.channelInterpretation = 'speakers';
+        io.src.connect(mono); mono.connect(cap, 0, 0); S.srcRef = { node: mono, out: 0 };
+      } else {
+        const ch = P.refCh === 'sum' ? 0 : Math.min(1, +P.refCh || 0);
+        io.sp.connect(cap, ch, 0); S.srcRef = { node: io.sp, out: ch };
+      }
+      // pass-through: the reference input goes straight to the output (amp), replacing the generator.
+      // On a shared interface only the reference channel is passed, never the mic.
+      const thruG = ctx.createGain(); thruG.gain.value = 0;
+      if (shared) S.srcRef.node.connect(thruG, S.srcRef.out); else io.src.connect(thruG);
+      thruG.connect(ctx.destination); S.thruG = thruG;
+    }
 
     cap.port.onmessage = onAudio;
     S.gen = gen; S.cap = cap;
+    thruApply(true);
     if (ctx.state === 'suspended') { try { await ctx.resume(); } catch {} }
     sendGen();
     ring.w = 0; ring.ref.fill(0); ring.meas.fill(0);
@@ -782,6 +818,7 @@ async function keepAwake(on){
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.running) keepAwake(true); });
 async function stop(quiet){
   S.running = false;
+  S.thruG = null;
   monTeardown();
   keepAwake(false);
   S.streams.forEach(st => st.getTracks().forEach(t => t.stop())); S.streams = [];
@@ -2055,6 +2092,7 @@ setInterval(deckRender, 140);
 /* ---------------- UI wiring ---------------- */
 function changed(){ save(); syncUI(); S.dirty = true; }
 function toggleGen(){
+  if (thruActive()){ toast('Pass-through is on, so the generator is muted. Turn off pass-through to use it.'); return; }
   P.genOn = !P.genOn; changed(); sendGen();
   if (P.genOn && !S.running) start();
 }
@@ -2089,10 +2127,13 @@ function syncUI(){
   $('#levMetricBtn').textContent = levShort() + ' ▸';
   $('#levZoomBtn').textContent = levSpanLabel();
   $('#monLevelV').textContent = P.monLevel + ' dB';
+  $('#thruLevelV').textContent = (P.thruLevel > 0 ? '+' : '') + P.thruLevel + ' dB';
+  $('#thruBox').hidden = P.refDev === 'gen'; $('#thruLevelRow').hidden = !P.thru;
+  thruInfo();
   LEV = LEVS[P.levSrc === 'ref' ? 'ref' : 'meas'];
   $('#levSrcBtn').textContent = (P.levSrc === 'ref' ? 'Ref in' : 'Mic in') + ' ▸';
   $('#bandsSrcBtn').textContent = (P.bandsSrc === 'ref' ? 'Ref in' : 'Mic in') + ' ▸';
-  ['levMetric', 'levSpan', 'levRange', 'levRefWin', 'bandsFloor', 'bandsCeil', 'bandPreset', 'bandCustom', 'bandTallySec', 'bandGate', 'levSrc', 'bandsSrc', 'monMode', 'monLevel'].forEach(k => set(k, P[k]));
+  ['levMetric', 'levSpan', 'levRange', 'levRefWin', 'bandsFloor', 'bandsCeil', 'bandPreset', 'bandCustom', 'bandTallySec', 'bandGate', 'levSrc', 'bandsSrc', 'monMode', 'monLevel', 'thru', 'thruLevel'].forEach(k => set(k, P[k]));
   $('#bandCustomRow').hidden = P.bandPreset !== 'custom';
   $('#bandPresetBtn').textContent = (BAND_PRESETS[bandSet().id] || BAND_PRESETS.iso31).short + ' ▸';
   const okSerial = serialDigits().length === 7;
@@ -2129,7 +2170,7 @@ function bind(id, key, opts = {}){
 bind('measDev', 'measDev', { after: restart });
 bind('measCh', 'measCh', { num: true, after: restart });
 bind('refDev', 'refDev', { after: restart });
-bind('refCh', 'refCh', { num: true, after: restart });
+bind('refCh', 'refCh', { after: () => { if (P.refCh === 'sum' && P.refDev === P.measDev) toast('L+R needs the reference on its own device; using channel 1.'); restart(); } });
 bind('outDev', 'outDev', { after: async () => { if (S.ctx && S.ctx.setSinkId){ try { await S.ctx.setSinkId(P.outDev); } catch { toast('Could not switch output.'); } } } });
 bind('fs', 'fs', { num: true, after: restart });
 bind('polarity', 'polarity', { after: () => { resetAverages(); monBuild(); } });
@@ -2154,6 +2195,8 @@ bind('bandTallySec', 'bandTallySec', { num: true });
 bind('bandGate', 'bandGate', { num: true });
 bind('levSrc', 'levSrc');
 bind('monMode', 'monMode', { after: () => { if (P.monMode !== 'off' && !S.running) toast('Press Start to hear the monitor.'); monBuild(); } });
+bind('thru', 'thru', { after: () => { thruApply(); if (P.thru && P.genOn) toast('The generator is muted while pass-through is on.'); } });
+bind('thruLevel', 'thruLevel', { num: true, after: () => thruApply() });
 bind('monLevel', 'monLevel', { num: true, after: () => { if (S.mon) S.mon.out.gain.setTargetAtTime(Math.pow(10, P.monLevel / 20), S.ctx.currentTime, 0.03); } });
 bind('monOut', 'monOut', { after: () => { if (S.mon && S.mon.el && S.mon.el.setSinkId) S.mon.el.setSinkId(P.monOut).catch(() => toast('Could not use that output.')); } });
 bind('bandsSrc', 'bandsSrc');

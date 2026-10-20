@@ -23,7 +23,7 @@ Keep it a single self-contained page. Don't add a bundler, framework or npm depe
 - Served by the owner's Node/Express server as static files under `/clever/`, over HTTPS. Mic access and WebHID require HTTPS.
 - The server folder is a git clone of this repo. The owner deploys by running `git pull` on the server, usually over SSH from Termux on his phone. There is no CI.
 - All paths are relative (manifest `start_url` and `scope` are `./`, the service worker is registered as `sw.js`). Keep them relative so the app works in any subfolder.
-- When you change cached assets, bump `CACHE` in `sw.js` (currently `clever-v15`) so installed copies refresh.
+- When you change cached assets, bump `CACHE` in `sw.js` (currently `clever-v16`) so installed copies refresh.
 - Commit and push to `main`, then tell the owner to pull.
 
 ## Code map (`index.html`)
@@ -33,7 +33,7 @@ Keep it a single self-contained page. Don't add a bundler, framework or npm depe
 3. Main script, in banner-commented sections:
    - **settings**: `P` is the persisted settings object (`DEFAULTS` merged with `localStorage`). Call `changed()` or `save()` + `syncUI()` after mutating it.
    - **audio worklets**: the `WORKLET` string is loaded as a Blob URL. `ca-cap` captures input 0 (reference) and input 1 (measurement) in 1024-sample blocks. `ca-gen` produces pink (Paul Kellet filter, normalised to RMS 1), white or sine at an RMS dBFS level.
-   - **engine**: `start()` builds the AudioContext graph. Echo cancellation, noise suppression and auto gain are switched off. The reference is either the generator (internal loopback) or a device channel. A screen wake lock is held while running.
+   - **engine**: `start()` builds the AudioContext graph. Echo cancellation, noise suppression and auto gain are switched off. The reference is either the generator (internal loopback), a device channel, or (`P.refCh === 'sum'`, only when the reference has its own device) an L+R mono sum through a 1-channel GainNode. Pass-through (`P.thru`, `P.thruLevel`, `S.thruG`, `thruApply()`): the reference input is played to `ctx.destination` (the Output device) so a music source can feed an amp directly; the whole stereo stream when the reference has its own device, only the reference channel when it shares the mic's interface. The generator is muted while pass-through is active (`sendGen`, `toggleGen`). No special latency handling is needed: GCC-PHAT compares the captured reference with the mic, so the browser's output latency is part of the measured delay (tested with a simulated 8.5 ms path, found exactly). A screen wake lock is held while running.
    - **analysis**: ring buffers of 2^18 samples. Multi-time-window FFT sizes are 16k down to 512 at 48 kHz (doubled at 88.2 kHz and above). The `MTW_BOUNDS` crossovers are 200, 400, 800, 1600 and 3200 Hz. Cross-spectra are averaged per size. A residual sub-sample delay is applied as a phase rotation. Smoothing is complex smoothing over fractional-octave bands via prefix sums. The display grid is 1/48 octave, 18 Hz to 22 kHz.
    - **delay finder**: GCC-PHAT over 65536 samples with parabolic interpolation. A confidence ratio below 8 is rejected. Negative delays delay the measurement instead of the reference.
    - **SPL**: 4096-sample non-overlapping blocks, frequency-domain weighting including mic cal correction, Fast and Slow exponential time weighting, Leq and Max.
