@@ -4,7 +4,7 @@
   "description": "Real-time analyzer, transfer function, delay finder and SPL meter for live sound.",
   "start_url": "./",
   "scope": "./",
-  "display": "standalone",
+  "display": "fullscreen",
   "orientation": "any",
   "background_color": "#0e1217",
   "theme_color": "#141a21",
@@ -27,5 +27,9 @@
       "type": "image/png",
       "purpose": "maskable"
     }
+  ],
+  "display_override": [
+    "fullscreen",
+    "standalone"
   ]
 }

@@ -13,7 +13,7 @@ The owner is a live sound engineer. He tests on real gear at venues, so anything
 | `guide.m4a` | Audio overview of the guide (NotebookLM). Lives only on the server; listed in `.gitignore` because it is too big for the repo. The guide links to it, and the service worker skips media requests. |
 | `redirects/` | Stubs and instructions for sending the old audiogeek pages (`/` and `/levels.html` on the site root) to clever's Bands and Levels tabs. Not used by clever itself. |
 | `sw.js` | Service worker. Network first with a 4 s timeout, cache fallback for offline use at venues. |
-| `manifest.webmanifest` | Home-screen install (name "clever by audiogeek", short name "clever"). |
+| `manifest.webmanifest` | Home-screen install (name "clever by audiogeek", short name "clever"). `display` is `fullscreen` (with `standalone` as fallback) so the installed Android app hides the system bars. |
 | `icon-*.png` | App icons (192, 512, maskable 512). |
 
 Keep it a single self-contained page. Don't add a bundler, framework or npm dependencies unless the owner asks.
@@ -23,7 +23,7 @@ Keep it a single self-contained page. Don't add a bundler, framework or npm depe
 - Served by the owner's Node/Express server as static files under `/clever/`, over HTTPS. Mic access and WebHID require HTTPS.
 - The server folder is a git clone of this repo. The owner deploys by running `git pull` on the server, usually over SSH from Termux on his phone. There is no CI.
 - All paths are relative (manifest `start_url` and `scope` are `./`, the service worker is registered as `sw.js`). Keep them relative so the app works in any subfolder.
-- When you change cached assets, bump `CACHE` in `sw.js` (currently `clever-v7`) so installed copies refresh.
+- When you change cached assets, bump `CACHE` in `sw.js` (currently `clever-v8`) so installed copies refresh.
 - Commit and push to `main`, then tell the owner to pull.
 
 ## Code map (`index.html`)
