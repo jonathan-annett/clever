@@ -2214,7 +2214,12 @@ const ACTIONS = [
   ...[0, 1, 2, 3].map(i => ({ k: () => traceKey(i), press: () => { const t = TRACES[i]; if (t){ t.visible = !t.visible; saveTraces(); renderTraces(); S.dirty = true; } } })),
   { k: () => onKey('TRACES', TRACES.some(t => t.visible) ? 'HIDE' : 'SHOW', 'all'), press: () => { const v = !TRACES.some(t => t.visible); TRACES.forEach(t => t.visible = v); saveTraces(); renderTraces(); S.dirty = true; } },
   // voice check
-  { k: () => { const V = VOICE[voiceSrc()]; return { top: 'NEW TALKER', main: 'RESET', sub: V.count ? Math.round(V.secs) + ' s speech' : 'voice check', bg: '#1f2a3a', fg: C.fg, fg2: '#9db4d6' }; },
+  // reset key doubles as a meter for the input the voice check is listening to (the solo channel in a ref/solo setup)
+  { k: () => {
+      const src = voiceSrc(), V = VOICE[src], m = S.meter[src], db = m.disp ?? -120, clip = performance.now() - m.clip < 1500;
+      return { top: 'NEW TALKER', main: 'RESET', sub: (V.open ? '● ' : '') + (V.count ? Math.round(V.secs) + ' s' : ({ aux: 'solo', ref: 'ref', meas: 'mic' })[src]),
+        bg: clip ? '#7a1a12' : '#1f2a3a', fg: C.fg, fg2: V.open ? '#9fe3b9' : '#9db4d6', meter: S.running ? Math.max(0, Math.min(1, (db + 60) / 60)) : 0 };
+    },
     press: () => { voiceReset(); toast('Voice check restarted'); } },
   { k: voiceKey, press: () => { if (P.topView !== 'voice'){ P.topView = 'voice'; P.voicePanel = true; } else P.voicePanel = !P.voicePanel; changed(); } },
   // row 4 · level
