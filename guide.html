@@ -281,11 +281,12 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
     <section id="levels">
       <h2><span class="n">08</span>Levels and Bands: is it staying consistent?</h2>
       <h3>Levels: watching a feed drift</h3>
-      <p>The <span class="ui">Levels</span> tab draws the level over the last 1, 3 or 10 minutes, with a reference line and a large readout of how far the level has moved from it. Use it to keep a stream feed, a broadcast send or a presenter at a steady level over a long session.</p>
+      <p>The <span class="ui">Levels</span> tab keeps the last 10 minutes of level and shows the last 60 seconds by default. Zoom out to 3 or 10 minutes with the <span class="ui">60 s</span> button, the mouse wheel, or <kbd>−</kbd> and <kbd>=</kbd>. It draws the level with a reference line and a large readout of how far the level has moved from it. Use it to keep a stream feed, a broadcast send or a presenter at a steady level over a long session.</p>
       <ol class="steps">
         <li><span>Point the input at the feed you want to watch: a desk output into an interface, or a mic in the room.</span></li>
         <li><span>Once the level sounds right, press <span class="ui">Set ref</span> (or <kbd>Enter</kbd>). It takes the average of the last 10 seconds; change that under <span class="ui">Levels › Ref from</span>. You can also click or drag on the graph to place the reference exactly.</span></li>
-        <li><span>Watch the readout. It shows the current level and the difference from the reference: green within 1 dB, amber within 3 dB, red beyond that.</span></li>
+        <li><span>Watch the readout. It shows the current level and the difference from the reference: green within 1 dB, amber within 3 dB, red beyond that. The <strong>60 s avg</strong> line underneath is steadier, and is the one to watch for slow drift through pauses in speech or music.</span></li>
+        <li><span>At the 60 s view, two boxes show the recent range: red for the last 5 seconds and green for the last minute, each from the average (dashed bottom edge) to the peak (solid top edge). To use a peak as the reference, as on the old levels page, set <span class="ui">Levels › Ref from</span> to <span class="ui">5 s peak</span> or <span class="ui">60 s peak</span>.</span></li>
       </ol>
       <p>There are three ways to measure loudness. Switch with the <span class="ui">LUFS ▸</span> button or <kbd>M</kbd>:</p>
       <ul>
@@ -293,7 +294,7 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
         <li><strong>Leq 3 s</strong>: the SPL meter's weighting (A, C or Z) and calibration, averaged over 3 seconds. Use it with a calibrated mic to watch room level.</li>
         <li><strong>RMS 3 s</strong>: plain unweighted signal level in dBFS.</li>
       </ul>
-      <p>Levels keeps recording while you look at other tabs, so you can switch away and come back to the whole history. Each method keeps its own reference.</p>
+      <p>The bright line is the 3-second level; the thin line behind it is the fast 400 ms (momentary) level that the peaks are taken from. Levels keeps recording while you look at other tabs, so you can switch away and come back to the whole history. Each method keeps its own reference.</p>
       <h3>Bands: which part of the spectrum is leading?</h3>
       <p>The <span class="ui">Bands</span> tab splits the sound into the 33 standard third-octave bands from 12.5 Hz to 20 kHz. Each band is a column, and time scrolls upward with the newest moment at the bottom. The wider a band's mark, the louder it is. The loudest band at each moment is drawn in red: the <strong>hot zone</strong>.</p>
       <p>A band that keeps turning red while the music changes around it is worth a look: a resonance, a boomy corner, or a frequency on its way to feeding back. Tap a band's label to ignore it (useful for air-conditioning rumble or a constant hum) and the hot zone will skip it; <span class="ui">Use all bands</span> brings them all back. Set the display range under <span class="ui">RTA &amp; Spectrograph › Bands floor / Ceiling</span>.</p>

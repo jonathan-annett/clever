@@ -256,9 +256,9 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
         <summary>Levels</summary>
         <div class="body">
           <div class="row"><label for="levMetric">Method</label><select id="levMetric"><option value="lufs">LUFS short-term (3 s)</option><option value="leq">Leq 3 s (SPL weighting)</option><option value="rms">RMS 3 s (unweighted)</option></select></div>
-          <div class="row"><label for="levSpan">History</label><select id="levSpan"><option value="1">1 minute</option><option value="3">3 minutes</option><option value="10">10 minutes</option></select></div>
+          <div class="row"><label for="levSpan">View</label><select id="levSpan"><option value="1">60 seconds</option><option value="3">3 minutes</option><option value="10">10 minutes</option></select></div>
           <div class="row"><label for="levRange">Range</label><select id="levRange"><option value="12">±6 dB</option><option value="24">±12 dB</option><option value="48">±24 dB</option></select></div>
-          <div class="row"><label for="levRefWin">Ref from</label><select id="levRefWin"><option value="3">Last 3 s</option><option value="10">Last 10 s</option><option value="60">Last 60 s</option></select></div>
+          <div class="row"><label for="levRefWin">Ref from</label><select id="levRefWin"><option value="3">Last 3 s average</option><option value="10">Last 10 s average</option><option value="60">Last 60 s average</option><option value="p5">5 s peak</option><option value="p60">60 s peak</option></select></div>
           <p class="note">Set the reference once the feed is at a good level, then watch the drift readout. You can also click or drag on the graph to place it. LUFS uses BS.1770 K-weighting on one channel; Leq uses the SPL meter's weighting and calibration.</p>
         </div>
       </details>
@@ -355,7 +355,7 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
       <section class="pane">
         <div class="phead">
           <div class="tabs" id="topTabs"><button data-v="rta">RTA</button><button data-v="spec">Spectrograph</button><button data-v="ir">Impulse</button><button data-v="lev">Levels</button><button data-v="bands">Bands</button></div>
-          <span class="pctl" id="levCtl" hidden><button class="btn mini primary" id="levSet" title="Set the reference from the recent average (Enter)">Set ref</button><button class="btn mini" id="levClear">Clear</button><button class="btn mini" id="levMetricBtn" title="Change loudness method (M)">LUFS</button></span>
+          <span class="pctl" id="levCtl" hidden><button class="btn mini primary" id="levSet" title="Set the reference from the recent average (Enter)">Set ref</button><button class="btn mini" id="levClear">Clear</button><button class="btn mini" id="levMetricBtn" title="Change loudness method (M)">LUFS</button><button class="btn mini" id="levZoomBtn" title="Zoom: 60 s, 3 min, 10 min (− and =, or the mouse wheel)">60 s</button></span>
           <span class="pctl" id="bandsCtl" hidden><span class="hint">Tap a band label to ignore it</span><button class="btn mini" id="bandsReset">Use all bands</button></span>
           <span id="irInfo"></span><button class="btn" id="irApply" hidden style="padding:2px 8px;font-size:12px">Add to delay</button>
           <span class="ro" id="roTop"></span>
@@ -507,7 +507,7 @@ const DEFAULTS = {
   genOn: false, genType: 'pink', genFreq: 1000, genLevel: -20,
   delayMs: 0,
   fftMode: 'mtw', avg: 8, smooth: 24, cohBlank: 0.5, cohView: 'lane', sideHidden: false, magRange: 20, magOffset: 0,
-  topView: 'rta', levMetric: 'lufs', levSpan: 10, levRange: 24, levRefWin: 10, levRef: {}, bandsFloor: -90, bandsCeil: -30, bandIgnore: [], rtaBands: '3', rtaAvg: 'fast', rtaUnits: 'dbfs', rtaTop: 0, rtaSpan: 100, peakHold: true,
+  topView: 'rta', levMetric: 'lufs', levSpan: 1, levRange: 24, levRefWin: 10, levRef: {}, bandsFloor: -90, bandsCeil: -30, bandIgnore: [], rtaBands: '3', rtaAvg: 'fast', rtaUnits: 'dbfs', rtaTop: 0, rtaSpan: 100, peakHold: true,
   specFloor: -110, specCeil: -40,
   serial: '', calAngle: '0', applyCal: true, splOffset: null, weight: 'A', timeW: 'fast', calRef: 94,
   micModel: 'umik', calActive: null, layout: null,
@@ -550,6 +550,7 @@ const SPL_N = 4096;
 const LEV_CAP = 6600, LEV_WIN = 30;           // 11 min of 100 ms points; 3 s window = 30 blocks
 const LEV = {
   t: new Float64Array(LEV_CAP), k: new Float32Array(LEV_CAP), w: new Float32Array(LEV_CAP), r: new Float32Array(LEV_CAP),
+  km: new Float32Array(LEV_CAP), wm: new Float32Array(LEV_CAP), rm: new Float32Array(LEV_CAP),   // momentary, 400 ms
   head: 0, n: 0, f: null, z: new Float64Array(8),
   len: 4800, cnt: 0, kAcc: 0, rAcc: 0, wE: 0, wN: 0, lastW: 0,
   wk: new Float64Array(LEV_WIN), wr: new Float64Array(LEV_WIN), ww: new Float64Array(LEV_WIN), wi: 0, wf: 0
@@ -568,6 +569,9 @@ function levBlock(kms, rms){
   L.k[h] = -0.691 + 10 * Math.log10(sk / L.wf + 1e-20);      // short-term loudness, LUFS (mono)
   L.r[h] = 10 * Math.log10(2 * sr / L.wf + 1e-20);           // unweighted RMS, dBFS (sine-referenced)
   L.w[h] = 10 * Math.log10(2 * sw / L.wf + 1e-20);           // A/C/Z weighted, dBFS; SPL offset added at display time
+  let mk = 0, mr = 0, mw = 0; const mn = Math.min(4, L.wf);
+  for (let j = 1; j <= mn; j++){ const q = (L.wi - j + LEV_WIN) % LEV_WIN; mk += L.wk[q]; mr += L.wr[q]; mw += L.ww[q]; }
+  L.km[h] = -0.691 + 10 * Math.log10(mk / mn + 1e-20); L.rm[h] = 10 * Math.log10(2 * mr / mn + 1e-20); L.wm[h] = 10 * Math.log10(2 * mw / mn + 1e-20);
   L.head = (h + 1) % LEV_CAP; L.n = Math.min(LEV_CAP, L.n + 1);
 }
 
@@ -1241,22 +1245,29 @@ const TOP_VIEWS = ['rta', 'spec', 'ir', 'lev', 'bands'];
 const TOP_NAMES = { rta: 'RTA', spec: 'Spectrograph', ir: 'Impulse', lev: 'Levels', bands: 'Bands' };
 const LEV_METRICS = ['lufs', 'leq', 'rms'];
 const levArr = () => P.levMetric === 'leq' ? LEV.w : P.levMetric === 'rms' ? LEV.r : LEV.k;
+const levMom = () => P.levMetric === 'leq' ? LEV.wm : P.levMetric === 'rms' ? LEV.rm : LEV.km;
+const LEV_SPANS = [1, 3, 10];
+const levSpanLabel = () => P.levSpan < 1 ? P.levSpan * 60 + ' s' : P.levSpan === 1 ? '60 s' : P.levSpan + ' min';
+function levZoom(dir){ const i = LEV_SPANS.indexOf(+P.levSpan), j = Math.max(0, Math.min(LEV_SPANS.length - 1, (i < 0 ? 0 : i) + dir)); if (LEV_SPANS[j] !== +P.levSpan){ P.levSpan = LEV_SPANS[j]; changed(); } }
 const levOff = () => P.levMetric === 'leq' ? splOffset() : 0;
 const levUnit = () => P.levMetric === 'lufs' ? 'LUFS' : P.levMetric === 'rms' ? 'dBFS' : 'dB' + P.weight;
 const levShort = () => P.levMetric === 'lufs' ? 'LUFS' : P.levMetric === 'rms' ? 'RMS' : 'L' + P.weight + 'eq';
 const levIdx = j => (LEV.head - j + LEV_CAP) % LEV_CAP;   // j = 1 is the newest point
 function levRefRaw(){ const v = P.levRef && P.levRef[P.levMetric]; return typeof v === 'number' && isFinite(v) ? v : null; }
-function levMean(sec){
+// energy mean and peak over the last `sec` seconds (raw values, no SPL offset); momentary series by default
+function levStats(sec, arr = levMom()){
   if (!LEV.n) return null;
-  const arr = levArr(), tEnd = LEV.t[levIdx(1)]; let e = 0, c = 0;
-  for (let j = 1; j <= LEV.n; j++){ const i = levIdx(j); if (tEnd - LEV.t[i] > sec * 1000) break; e += Math.pow(10, arr[i] / 10); c++; }
-  return c ? 10 * Math.log10(e / c) : null;
+  const tEnd = LEV.t[levIdx(1)]; let e = 0, c = 0, pk = -Infinity, oldest = tEnd;
+  for (let j = 1; j <= LEV.n; j++){ const i = levIdx(j); if (tEnd - LEV.t[i] > sec * 1000) break; e += Math.pow(10, arr[i] / 10); c++; if (arr[i] > pk) pk = arr[i]; oldest = LEV.t[i]; }
+  return c ? { mean: 10 * Math.log10(e / c), peak: pk, full: tEnd - oldest >= sec * 1000 - 250 } : null;
 }
+function levMean(sec){ const st = levStats(sec, levArr()); return st ? st.mean : null; }
 function levSetRef(raw){ P.levRef = Object.assign({}, P.levRef, { [P.levMetric]: raw }); changed(); }
 function levSetFromRecent(){
-  const v = levMean(+P.levRefWin);
-  if (v == null){ toast('Start the analyzer and let some level build up first.'); return; }
-  levSetRef(v); toast(`Reference set to ${(v + levOff()).toFixed(1)} ${levUnit()} (last ${P.levRefWin} s)`);
+  const w = String(P.levRefWin), peak = w[0] === 'p', sec = parseFloat(peak ? w.slice(1) : w) || 10;
+  const st = levStats(sec, peak ? levMom() : levArr()), v = st && (peak ? st.peak : st.mean);
+  if (v == null || !isFinite(v)){ toast('Start the analyzer and let some level build up first.'); return; }
+  levSetRef(v); toast(`Reference set to ${(v + levOff()).toFixed(1)} ${levUnit()} (${peak ? sec + ' s peak' : 'last ' + sec + ' s average'})`);
 }
 function levClearRef(){ const r = Object.assign({}, P.levRef); delete r[P.levMetric]; P.levRef = r; changed(); }
 function cycleLevMetric(){ P.levMetric = LEV_METRICS[(LEV_METRICS.indexOf(P.levMetric) + 1) % LEV_METRICS.length]; changed(); toast('Level method: ' + levShort(), 1200); }
@@ -1293,21 +1304,34 @@ function drawLevels(F){
   clip(F);
   if (ref != null){
     const yr = yOf(ref + off);
-    g.fillStyle = C.ok; g.globalAlpha = 0.07; g.fillRect(F.x0, yOf(ref + off + 1), F.x1 - F.x0, yOf(ref + off - 1) - yOf(ref + off + 1)); g.globalAlpha = 1;
+    g.fillStyle = C.fg; g.globalAlpha = 0.05; g.fillRect(F.x0, yOf(ref + off + 1), F.x1 - F.x0, yOf(ref + off - 1) - yOf(ref + off + 1)); g.globalAlpha = 1;
     g.strokeStyle = C.accent; g.lineWidth = 1.5; g.setLineDash([6, 4]); g.beginPath(); g.moveTo(F.x0, yr); g.lineTo(F.x1, yr); g.stroke(); g.setLineDash([]);
   }
-  // one column per pixel: energy mean as the trace, min to max as a faint envelope
-  const arr = levArr(), cols = []; let cur = null, prevT = null;
+  // 60 s view: the old levels-monitor boxes, from mean (bottom) to peak (top) of the momentary level
+  if (span <= 60000 && LEV.n){
+    for (const [sec, col, lab] of [[60, C.ok, '60 s'], [5, C.clip, '5 s']]){
+      const st = levStats(sec); if (!st || !st.full) continue;
+      const xa = Math.max(F.x0, xOf(LEV.t[levIdx(1)] - sec * 1000)), xb = xOf(LEV.t[levIdx(1)]), ya = yOf(st.peak + off), yb = yOf(st.mean + off);
+      g.fillStyle = col; g.globalAlpha = sec === 5 ? 0.2 : 0.08; g.fillRect(xa, ya, xb - xa, Math.max(2, yb - ya)); g.globalAlpha = 1;
+      g.strokeStyle = col; g.lineWidth = 1.5; g.beginPath(); g.moveTo(xa, ya); g.lineTo(xb, ya); g.stroke();
+      g.setLineDash([3, 3]); g.beginPath(); g.moveTo(xa, yb); g.lineTo(xb, yb); g.stroke(); g.setLineDash([]);
+      g.fillStyle = col; g.font = `11px ${MONO}`; g.textAlign = 'right'; g.textBaseline = 'bottom';
+      g.fillText(`${lab} pk ${(st.peak + off).toFixed(1)} · mean ${(st.mean + off).toFixed(1)}`, xb - 4, ya - (sec === 5 ? 3 : 16));
+    }
+  }
+  // one column per pixel: energy mean of the 3 s level as the trace, momentary min to max as a faint envelope
+  const arr = levArr(), mom = levMom(), cols = []; let cur = null, prevT = null;
   for (let j = 1; j <= LEV.n; j++){
     const i = levIdx(j), t = LEV.t[i]; if (tNow - t > span) break;
-    const x = Math.floor(xOf(t)), v = arr[i] + off, gap = prevT != null && prevT - t > 1000; prevT = t;
-    if (!cur || cur.x !== x || gap){ if (cur) cols.push(cur); cur = { x, e: 0, c: 0, mn: v, mx: v, gap }; }
-    cur.e += Math.pow(10, v / 10); cur.c++; if (v < cur.mn) cur.mn = v; if (v > cur.mx) cur.mx = v;
+    const x = Math.floor(xOf(t)), v = arr[i] + off, m = mom[i] + off, gap = prevT != null && prevT - t > 1000; prevT = t;
+    if (!cur || cur.x !== x || gap){ if (cur) cols.push(cur); cur = { x, e: 0, c: 0, mn: m, mx: m, m, gap }; }
+    cur.e += Math.pow(10, v / 10); cur.c++; if (m < cur.mn) cur.mn = m; if (m > cur.mx) cur.mx = m;
   }
   if (cur) cols.push(cur);
   if (cols.length){
-    g.strokeStyle = C.live; g.globalAlpha = 0.28; g.lineWidth = 1; g.beginPath();
-    for (const c of cols) if (c.mx - c.mn > 0.05){ g.moveTo(c.x + 0.5, yOf(c.mx)); g.lineTo(c.x + 0.5, yOf(c.mn)); }
+    g.strokeStyle = C.live; g.globalAlpha = 0.3; g.lineWidth = 1; g.beginPath();
+    if (span <= 180000){ cols.forEach((c, k) => (k && !cols[k - 1].gap) ? g.lineTo(c.x + 0.5, yOf(c.m)) : g.moveTo(c.x + 0.5, yOf(c.m))); }   // momentary as a thin line
+    else for (const c of cols) if (c.mx - c.mn > 0.05){ g.moveTo(c.x + 0.5, yOf(c.mx)); g.lineTo(c.x + 0.5, yOf(c.mn)); }
     g.stroke(); g.globalAlpha = 1;
     const segs = []; let sg = [];
     for (const c of cols){ c.v = 10 * Math.log10(c.e / c.c); sg.push(c); if (c.gap){ segs.push(sg); sg = []; } }
@@ -1326,7 +1350,7 @@ function drawLevels(F){
   g.restore();
   // big readout
   const curV = last >= 0 ? arr[last] + off : null, bx = F.x0 + 10, by = F.y0 + 10;
-  g.fillStyle = C.bg; g.globalAlpha = 0.78; g.fillRect(bx, by, 210, ref != null ? 84 : 58); g.globalAlpha = 1;
+  g.fillStyle = C.bg; g.globalAlpha = 0.78; g.fillRect(bx, by, 230, ref != null ? 104 : 58); g.globalAlpha = 1;
   g.textAlign = 'left'; g.textBaseline = 'alphabetic';
   g.fillStyle = C.fg; g.font = `600 30px ${MONO}`; const vs = curV == null ? '--.-' : curV.toFixed(1); g.fillText(vs, bx + 10, by + 36);
   const vw = g.measureText(vs).width;
@@ -1337,6 +1361,10 @@ function drawLevels(F){
     g.font = `600 22px ${MONO}`; g.fillStyle = ad <= 1 ? C.ok : ad <= 3 ? C.accent : C.clip;
     g.fillText((d >= 0 ? '+' : '−') + ad.toFixed(1) + ' dB', bx + 10, by + 76);
     g.font = `12px ${MONO}`; g.fillStyle = C.dim; g.fillText('vs ref', bx + 130, by + 76);
+    const m60 = levStats(60, arr);
+    if (m60){ const d6 = m60.mean - ref, a6 = Math.abs(d6);
+      g.fillStyle = C.dim; g.fillText('60 s avg ', bx + 10, by + 96);
+      g.fillStyle = a6 <= 1 ? C.ok : a6 <= 3 ? C.accent : C.clip; g.fillText((d6 >= 0 ? '+' : '−') + a6.toFixed(1) + ' dB', bx + 82, by + 96); }
   }
   // readout line
   let ro = ref != null ? `ref ${(ref + off).toFixed(1)} ${unit}` : 'no reference: press Set ref or click the graph';
@@ -1802,6 +1830,7 @@ function syncUI(){
   $('#layoutBtn').textContent = P.layout === 'rta' ? 'ALL PANES' : (TOP_NAMES[P.topView] || 'RTA').toUpperCase() + ' ONLY';
   $('#levCtl').hidden = P.topView !== 'lev'; $('#bandsCtl').hidden = P.topView !== 'bands';
   $('#levMetricBtn').textContent = levShort() + ' ▸';
+  $('#levZoomBtn').textContent = levSpanLabel();
   ['levMetric', 'levSpan', 'levRange', 'levRefWin', 'bandsFloor', 'bandsCeil'].forEach(k => set(k, P[k]));
   const okSerial = serialDigits().length === 7;
   $('#calLink').hidden = !okSerial;
@@ -1853,12 +1882,14 @@ bind('cohView', 'cohView');
 bind('levMetric', 'levMetric');
 bind('levSpan', 'levSpan', { num: true });
 bind('levRange', 'levRange', { num: true });
-bind('levRefWin', 'levRefWin', { num: true });
+bind('levRefWin', 'levRefWin');
 bind('bandsFloor', 'bandsFloor', { num: true });
 bind('bandsCeil', 'bandsCeil', { num: true });
 $('#levSet').onclick = levSetFromRecent;
 $('#levClear').onclick = levClearRef;
 $('#levMetricBtn').onclick = cycleLevMetric;
+$('#levZoomBtn').onclick = () => { P.levSpan = LEV_SPANS[(LEV_SPANS.indexOf(+P.levSpan) + 1) % LEV_SPANS.length]; changed(); };
+$('#cvTop').addEventListener('wheel', e => { if (P.topView !== 'lev') return; e.preventDefault(); levZoom(e.deltaY > 0 ? 1 : -1); }, { passive: false });
 $('#bandsReset').onclick = () => { P.bandIgnore = []; changed(); };
 bind('magRange', 'magRange', { num: true });
 bind('magOffset', 'magOffset', { num: true });
@@ -1988,6 +2019,8 @@ document.addEventListener('keydown', e => {
   else if (k === 'k') cycleCohView();
   else if (k >= '1' && k <= '5'){ P.topView = TOP_VIEWS[+k - 1]; changed(); }
   else if (k === 'm') cycleLevMetric();
+  else if (P.topView === 'lev' && (k === '-' || k === '_')) levZoom(1);
+  else if (P.topView === 'lev' && (k === '=' || k === '+')) levZoom(-1);
   else if (k === 'enter' && P.topView === 'lev') levSetFromRecent();
 });
 
@@ -2008,6 +2041,7 @@ window.addEventListener('resize', () => { S.dirty = true; drawCalPlot(); });
 
 // boot
 S.fs = +P.fs; buildAnalysis(); levInit();
+if (!P.levZoomV2){ P.levSpan = 1; P.levZoomV2 = true; save(); }
 // bring over the band ignore list from the old audiogeek analyzer (same origin, same 33 bands)
 if (!(P.bandIgnore && P.bandIgnore.length)){
   try { const old = JSON.parse(localStorage.getItem('ignoreBars') || 'null'); if (Array.isArray(old) && old.length === ISO_FC.length) P.bandIgnore = old.map(Boolean); } catch {}
