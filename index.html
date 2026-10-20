@@ -111,6 +111,13 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 #calPlot{width:100%;height:64px;display:block;background:var(--bg);border-radius:4px}
 .fallback{border:1px dashed var(--accent);border-radius:4px;padding:8px;font-size:12px;color:var(--fg);line-height:1.45}
 .fallback a{color:var(--accent);word-break:break-all}
+.calprofs summary{padding:2px 0!important;font-size:11px!important}
+.calprofs ul{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:4px}
+.calprofs li{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;font-size:12px;color:var(--dim)}
+.calprofs li b{color:var(--fg);font-weight:500}
+.calprofs li small{display:block;color:var(--faint);word-break:break-all}
+.calprofs li.on b{color:var(--accent)}
+.calprofs .btn{padding:3px 8px;font-size:12px}
 .traces{display:grid;gap:4px}
 .trace{display:grid;grid-template-columns:18px 14px 1fr auto auto;gap:6px;align-items:center;font-size:13px}
 .trace .sw{width:14px;height:14px;border-radius:3px}
@@ -366,7 +373,8 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
           <div class="calinfo" id="calInfo"></div>
           <canvas id="calPlot"></canvas>
           <label class="check"><input type="checkbox" id="applyCal">Apply calibration to RTA, SPL and magnitude</label>
-          <div class="btns"><button class="btn" id="btnLoadCal">Load cal file…</button><button class="btn" id="btnClearCal">Remove this mic</button><input type="file" id="calFile" accept=".txt,.cal,.frd,text/plain" hidden></div>
+          <div class="btns"><button class="btn" id="btnLoadCal">Load cal file…</button><button class="btn" id="btnClearCal">Delete this profile</button><input type="file" id="calFile" accept=".txt,.cal,.frd,text/plain" hidden></div>
+          <details class="calprofs" id="calProfs"><summary>Saved profiles</summary><ul id="calProfList"></ul></details>
           <p class="note">Each cal file you load becomes a mic profile with its own SPL offset. The app switches profile when it recognises the input device by name.</p>
           <div class="row"><label for="micModel">Get a file for</label><select id="micModel"><option value="umik">miniDSP UMIK-1</option><option value="dayton">Dayton iMM-6C</option><option value="other">Other mic</option></select></div>
           <div id="umikGet" style="display:grid;gap:9px">
@@ -714,6 +722,19 @@ let CAL = CALS.find(c => c.id === P.calActive) || null;
 function saveCals(){ store.set('ca.cals', CALS); }
 function setActiveCal(id){ P.calActive = id; CAL = CALS.find(c => c.id === id) || null; save(); onCalChanged(); }
 const MODEL_LABEL = { umik: 'UMIK-1', dayton: 'iMM-6C', other: 'Mic' };
+// 0° or 90°: stored when the file is loaded, otherwise read from the file name (miniDSP names the 90° file <serial>_90deg.txt)
+function calAngleOf(c){ return c.angle || (/90\s*(deg|°)|_90\b/i.test(c.name || '') ? '90' : c.model === 'umik' ? '0' : ''); }
+function calLabel(c){
+  const a = calAngleOf(c), base = `${MODEL_LABEL[c.model] || 'Mic'}${a ? ' ' + a + '°' : ''} · ${c.serial || c.name}`;
+  // two profiles that would still read the same get their file name too
+  return CALS.filter(o => o !== c && `${o.model}|${o.serial || o.name}|${calAngleOf(o)}` === `${c.model}|${c.serial || c.name}|${a}`).length ? `${base} (${c.name})` : base;
+}
+function deleteCal(c){
+  if (!c || !confirm(`Delete the mic profile "${calLabel(c)}"? Its SPL offset goes with it. You can load the file again later.`)) return;
+  CALS = CALS.filter(o => o !== c); saveCals();
+  if (CAL === c) setActiveCal(null); else renderCalInfo();
+  toast('Deleted ' + calLabel(c));
+}
 let TRACES = store.get('ca.traces', []);
 const TRACE_COLORS = ['#f2c14e', '#9be564', '#f78fb3', '#b39ddb', '#4dd0b1', '#ff9f43', '#7aa2ff', '#e6e6e6', '#d4a373', '#ff6b9a', '#80deea', '#c5e1a5'];
 
@@ -2100,6 +2121,7 @@ function loadCalText(text, name){
   const model = c.sens != null ? 'umik' : (P.micModel === 'umik' ? 'other' : P.micModel);
   const serial = c.serial || (model === 'umik' ? serialDigits() : '') || null;
   const data = { name, model, serial, sens: c.sens, again: c.again, f: c.f, db: c.db };
+  data.angle = calAngleOf({ name, model });
   let prof = CALS.find(p => p.name === name);
   if (prof) Object.assign(prof, data);
   else { prof = { id: Date.now(), splOffset: null, ...data }; CALS.push(prof); }
@@ -2120,7 +2142,16 @@ function autoPickCal(){
 function renderCalInfo(){
   const sel = $('#calSel'); sel.innerHTML = '';
   sel.add(new Option('No calibration', ''));
-  for (const c of CALS) sel.add(new Option(`${MODEL_LABEL[c.model] || 'Mic'} · ${c.serial || c.name}`, String(c.id)));
+  for (const c of CALS) sel.add(new Option(calLabel(c), String(c.id)));
+  const ul = $('#calProfList'); ul.innerHTML = '';
+  $('#calProfs').hidden = !CALS.length; $('#calProfs').querySelector('summary').textContent = `Saved profiles (${CALS.length})`;
+  for (const c of CALS){
+    const li = document.createElement('li'); li.classList.toggle('on', c === CAL);
+    const t = document.createElement('div'), b = document.createElement('b'), sm = document.createElement('small');
+    b.textContent = calLabel(c); sm.textContent = (c.name || '') + (c.splOffset != null ? ` · offset ${(+c.splOffset).toFixed(1)} dB` : ''); t.append(b, sm);
+    const del = document.createElement('button'); del.className = 'btn'; del.textContent = 'Delete'; del.onclick = () => deleteCal(c);
+    li.append(t, del); ul.append(li);
+  }
   sel.value = CAL ? String(CAL.id) : '';
   $('#btnClearCal').hidden = !CAL;
   const el = $('#calInfo');
@@ -2130,6 +2161,7 @@ function renderCalInfo(){
   const add = (k, v) => { const s = document.createElement('div'); s.append(k + ' '); const b = document.createElement('b'); b.textContent = v; s.append(b); el.append(s); };
   add('File', CAL.name || 'calibration');
   if (CAL.serial) add('Serial', CAL.serial);
+  if (calAngleOf(CAL)) add('Angle', calAngleOf(CAL) === '90' ? '90° (mic pointed at the ceiling)' : '0° (mic pointed at the source)');
   if (CAL.sens != null) add('Sens factor', CAL.sens.toFixed(3) + ' dB' + (CAL.again != null ? ` · AGain ${CAL.again} dB` : ''));
   add('Points', `${CAL.f.length}, ${CAL.f[0].toFixed(1)} Hz – ${(CAL.f[CAL.f.length - 1] / 1000).toFixed(1)} kHz, ${lo.toFixed(1)} to ${hi.toFixed(1)} dB`);
   drawCalPlot();
@@ -2623,12 +2655,7 @@ $('#btnGetCal').onclick = downloadCal;
 $('#serial').addEventListener('input', e => { P.serial = e.target.value; save(); syncUI(); });
 $('#btnLoadCal').onclick = () => $('#calFile').click();
 $('#calFile').onchange = e => { const f = e.target.files[0]; if (f) readCalFile(f); e.target.value = ''; };
-$('#btnClearCal').onclick = () => {
-  if (!CAL) return;
-  const name = CAL.serial || CAL.name;
-  CALS = CALS.filter(c => c !== CAL); saveCals();
-  setActiveCal(null); toast('Removed ' + name);
-};
+$('#btnClearCal').onclick = () => deleteCal(CAL);
 $('#btnOffsetDefault').onclick = () => setSplOffset(null);
 $('#btnLeqReset').onclick = () => { resetLeq(); toast('Leq and Max reset'); };
 $('#btnCalibrate').onclick = () => {
