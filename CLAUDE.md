@@ -23,7 +23,7 @@ Keep it a single self-contained page. Don't add a bundler, framework or npm depe
 - Served by the owner's Node/Express server as static files under `/clever/`, over HTTPS. Mic access and WebHID require HTTPS.
 - The server folder is a git clone of this repo. The owner deploys by running `git pull` on the server, usually over SSH from Termux on his phone. There is no CI.
 - All paths are relative (manifest `start_url` and `scope` are `./`, the service worker is registered as `sw.js`). Keep them relative so the app works in any subfolder.
-- When you change cached assets, bump `CACHE` in `sw.js` (currently `clever-v21`) so installed copies refresh.
+- When you change cached assets, bump `CACHE` in `sw.js` (currently `clever-v22`) so installed copies refresh.
 - Commit and push to `main`, then tell the owner to pull.
 
 ## Code map (`index.html`)
@@ -57,7 +57,7 @@ Storage keys: `ca.settings`, `ca.cals`, `ca.traces`. The old `ca.cal` key is mig
 - **Transfer function**: `H = Gxy / Gxx` with ref = X and meas = Y. Coherence is `|Gxy|² / (Gxx·Gyy)` per bin, then averaged across each smoothing band.
 - **Mic cal files**: text files of frequency/dB pairs. The values are the mic's deviation, so they are subtracted. A UMIK-1 header line looks like `"Sens Factor =-1.378dB, AGain =18dB, SERNO: 7001234"`.
 - **SPL offset default**: `112 − SensFactor`, from the UMIK-1 nominal −18 dBFS at 94 dB SPL. This is approximate and the UI says so. The Dayton iMM-6C file has no sensitivity, so it needs the calibrator button. Offsets are saved per mic profile.
-- **UMIK-1 cal URL**: `https://www.minidsp.com/images/umik/<7-digit serial>[_90deg].txt`. miniDSP sends no CORS headers, so the app falls back to showing the link for manual download. The owner prefers that manual flow because he gets the .txt file on disk too. Don't add a server proxy unless asked.
+- **UMIK-1 cal URL**: `https://www.minidsp.com/images/umik/<7-digit serial>.txt` for 0°; the 90° file is generated at `https://www.minidsp.com/scripts/umikcal/umik90.php/<serial>_90deg.txt` (confirmed by the owner from a real download). miniDSP sends no CORS headers, so the app falls back to showing the link for manual download. The owner prefers that manual flow because he gets the .txt file on disk too. Don't add a server proxy unless asked.
 - **Dayton iMM-6C**: no direct URL. The user looks the file up by serial at https://support.daytonaudio.com/MicrophoneCalibrationTool.
 
 ## Stream Deck (WebHID)
