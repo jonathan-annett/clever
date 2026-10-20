@@ -156,7 +156,8 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
       <ul>
         <li>Which frequencies are loud in this room right now?</li>
         <li>How loud is it, by the standards a venue or council uses?</li>
-        <li>Is something about to feed back?</li>
+        <li>Is something about to feed back, and which part of the spectrum keeps leading?</li>
+        <li>Is my stream or broadcast feed staying at the level I set?</li>
         <li>What is the PA doing to the signal I send it, and did my EQ change fix it?</li>
         <li>Are the subs and mains arriving at the same time?</li>
       </ul>
@@ -294,7 +295,8 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
         <li><strong>Leq 3 s</strong>: the SPL meter's weighting (A, C or Z) and calibration, averaged over 3 seconds. Use it with a calibrated mic to watch room level.</li>
         <li><strong>RMS 3 s</strong>: plain unweighted signal level in dBFS.</li>
       </ul>
-      <p>The bright line is the 3-second level; the thin line behind it is the fast 400 ms (momentary) level that the peaks are taken from. Levels keeps recording while you look at other tabs, so you can switch away and come back to the whole history. Each method keeps its own reference.</p>
+      <div class="callout"><span class="h">Coming from the old audiogeek pages</span><p>The old levels monitor's ceiling line is the reference here; its <em>Use 5 Sec Peak</em> and <em>Use 1 Min Peak</em> buttons are the <span class="ui">5 s peak</span> and <span class="ui">60 s peak</span> options under <span class="ui">Ref from</span>, and its red and green boxes appear at the 60 s view. The old analyzer's waterfall is the <span class="ui">Bands</span> tab, and bands you ignored there stay ignored.</p></div>
+      <p>The bright line is the 3-second level; the thin line behind it is the fast 400 ms (momentary) level that the peaks are taken from. Levels keeps recording while you look at other tabs, so you can switch away and come back to the whole history. The history is kept in memory only, so it starts again if you reload or close clever. Each method keeps its own reference.</p>
       <h3>Bands: which part of the spectrum is leading?</h3>
       <p>The <span class="ui">Bands</span> tab splits the sound into the 33 standard third-octave bands from 12.5 Hz to 20 kHz. Each band is a column, and time scrolls upward with the newest moment at the bottom. The wider a band's mark, the louder it is. The loudest band at each moment is drawn in red: the <strong>hot zone</strong>.</p>
       <p>A band that keeps turning red while the music changes around it is worth a look: a resonance, a boomy corner, or a frequency on its way to feeding back. Tap a band's label to ignore it (useful for air-conditioning rumble or a constant hum) and the hot zone will skip it; <span class="ui">Use all bands</span> brings them all back. Set the display range under <span class="ui">RTA &amp; Spectrograph › Bands floor / Ceiling</span>.</p>
@@ -423,10 +425,16 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
       <h2><span class="n">13</span>Phone, keyboard and Stream Deck</h2>
       <h3>On a phone or tablet</h3>
       <ul>
-        <li>In Chrome's menu, choose <strong>Add to home screen</strong>. clever then opens full screen and works without a signal, once it's been opened online at least once.</li>
+        <li>In Chrome's menu, choose <strong>Add to home screen</strong>. clever then opens full screen, with Android's status and navigation bars hidden (swipe in from an edge to bring them back for a moment). It works without a signal once it's been opened online at least once.</li>
         <li>The screen stays on while clever is running.</li>
         <li>Tap a plot to read the frequency and level at that point.</li>
         <li>USB-C measurement mics such as the iMM-6C plug straight in.</li>
+      </ul>
+      <h3>Making room for the plots</h3>
+      <ul>
+        <li>The <span class="ui">☰</span> button (or <kbd>S</kbd>) hides the settings panel once you've set things up; press it again to bring it back. On a phone it slides the panel in and out.</li>
+        <li>The <span class="ui">⛶</span> button (or <kbd>F</kbd>) switches the browser to full screen.</li>
+        <li>The <span class="ui">ALL PANES</span> button (or <kbd>L</kbd>) switches between all three plots and the top plot on its own.</li>
       </ul>
       <h3>Keyboard shortcuts</h3>
       <div class="tablewrap"><table>
@@ -460,6 +468,9 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
         <tr><td>Phase wraps faster and faster at high frequencies</td><td>The delay is off. Find delay again, or check the Impulse view.</td></tr>
         <tr><td>Readings drift slowly over a long session</td><td>When the reference and the mic are on two different USB devices, their clocks drift a little. Press Find delay now and then.</td></tr>
         <tr><td>Stream Deck isn't listed</td><td>Use Chrome or Edge on a computer, and quit the Elgato Stream Deck app first.</td></tr>
+        <tr><td>The installed app still shows the phone's status or navigation bar</td><td>Copies installed before full-screen mode was added keep the old window style for a while. Remove clever from the home screen, open it once in Chrome, and add it again. Keep your cal files and exported traces handy first.</td></tr>
+        <tr><td>The Levels history is empty</td><td>Level history is kept in memory while clever is open. Reloading the page or closing the app starts it again; your reference is kept.</td></tr>
+        <tr><td>An old audiogeek bookmark opened clever</td><td>The old analyzer and levels monitor now live inside clever as the Bands and Levels tabs. The banner at the top links to the old versions if you need them.</td></tr>
         <tr><td>My calibration or traces disappeared</td><td>They're stored per browser and per web address. Clearing browser data, or opening clever from a different address, starts fresh. Keep the cal file and exported CSVs somewhere safe.</td></tr>
       </table></div>
     </section>
