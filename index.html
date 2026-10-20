@@ -1883,8 +1883,17 @@ function pushVoice(dt){
     const tau = +P.voiceTau, al = tau > 0 ? Math.max(dt / tau, 1 / V.count) : 1 / V.count;
     for (let i = 0; i < n; i++) V.E[i] += al * (fr[i] - V.E[i]);
   }
+  // keep the result fresh for the Stream Deck key even when the Voice tab isn't showing
+  if (P.topView !== 'voice' && performance.now() - (S.voiceAnT || 0) > 1000) voiceCompute();
 }
-function voiceReset(){ for (const v of Object.values(VOICE)){ v.E.fill(0); v.secs = 0; v.count = 0; } S.dirty = true; S.voicePanelT = 0; }
+function voiceCompute(L){
+  const V = VOICE[voiceSrc()];
+  L = L || Array.from(V.E, e => 10 * Math.log10(e + 1e-20));
+  S.voiceLast = V.count ? DSP.voiceAnalyze(VOICE_FC, L, { hpfOrder: +P.voiceHpf }) : null;
+  S.voiceAnT = performance.now();
+  return S.voiceLast;
+}
+function voiceReset(){ for (const v of Object.values(VOICE)){ v.E.fill(0); v.secs = 0; v.count = 0; } S.voiceLast = null; S.dirty = true; S.voicePanelT = 0; }
 function voiceGateFromNoise(){
   const r = VOICE[voiceSrc()].recent; if (!r.length){ toast('Start the analyzer first, with nobody talking.'); return; }
   const e = r.reduce((t, v) => t + Math.pow(10, v / 10), 0) / r.length;
@@ -1895,8 +1904,7 @@ function fmtHz(f){ return f >= 1000 ? (+(f / 1000).toFixed(f >= 10000 ? 1 : 2)) 
 function drawVoice(F){
   const g = F.g, V = VOICE[voiceSrc()], ok = V.secs >= VOICE_MIN_SECS;
   const L = Array.from(V.E, e => 10 * Math.log10(e + 1e-20));
-  const R = V.count ? DSP.voiceAnalyze(VOICE_FC, L, { hpfOrder: +P.voiceHpf }) : null;
-  S.voiceLast = R;
+  const R = voiceCompute(L);
   // y range from the 1/3-octave curve
   let mx = -Infinity; if (R) for (let i = 0; i < R.S3.length; i++) if (VOICE_FC[i] > 80 && VOICE_FC[i] < 8000 && R.S3[i] > mx) mx = R.S3[i];
   const top = isFinite(mx) ? Math.ceil((mx + 6) / 6) * 6 : -20, bot = top - 54;
@@ -2128,7 +2136,7 @@ function renderTraces(){
     cb.onchange = () => { t.visible = cb.checked; saveTraces(); S.dirty = true; };
     const sw = document.createElement('span'); sw.className = 'sw'; sw.style.background = t.color;
     const nm = document.createElement('input'); nm.type = 'text'; nm.value = t.name; nm.id = 'tn' + t.id; nm.onchange = () => { t.name = nm.value; saveTraces(); };
-    const n = document.createElement('span'); n.className = 'n'; n.textContent = i < 6 ? 'K' + (i + 1) : '';
+    const n = document.createElement('span'); n.className = 'n'; n.textContent = i < 4 ? 'K' + (i + 1) : '';
     const x = document.createElement('button'); x.className = 'x'; x.textContent = '✕'; x.title = 'Delete'; x.setAttribute('aria-label', 'Delete ' + t.name);
     x.onclick = () => { TRACES.splice(i, 1); saveTraces(); renderTraces(); S.dirty = true; };
     row.append(cb, sw, nm, n, x); list.append(row);
@@ -2203,8 +2211,12 @@ const ACTIONS = [
   { k: () => onKey('MAGNITUDE', 'CENTER', (P.magOffset >= 0 ? '+' : '') + (+P.magOffset).toFixed(1) + ' dB'), press: centerTrace },
   // row 3 · traces
   { k: () => ({ top: 'TRACE', main: 'CAPTURE', sub: TRACES.length + ' stored', bg: '#1f3b52', fg: C.fg, fg2: '#9cc9ee' }), press: capture },
-  ...[0, 1, 2, 3, 4, 5].map(i => ({ k: () => traceKey(i), press: () => { const t = TRACES[i]; if (t){ t.visible = !t.visible; saveTraces(); renderTraces(); S.dirty = true; } } })),
+  ...[0, 1, 2, 3].map(i => ({ k: () => traceKey(i), press: () => { const t = TRACES[i]; if (t){ t.visible = !t.visible; saveTraces(); renderTraces(); S.dirty = true; } } })),
   { k: () => onKey('TRACES', TRACES.some(t => t.visible) ? 'HIDE' : 'SHOW', 'all'), press: () => { const v = !TRACES.some(t => t.visible); TRACES.forEach(t => t.visible = v); saveTraces(); renderTraces(); S.dirty = true; } },
+  // voice check
+  { k: () => { const V = VOICE[voiceSrc()]; return { top: 'NEW TALKER', main: 'RESET', sub: V.count ? Math.round(V.secs) + ' s speech' : 'voice check', bg: '#1f2a3a', fg: C.fg, fg2: '#9db4d6' }; },
+    press: () => { voiceReset(); toast('Voice check restarted'); } },
+  { k: voiceKey, press: () => { if (P.topView !== 'voice'){ P.topView = 'voice'; P.voicePanel = true; } else P.voicePanel = !P.voicePanel; changed(); } },
   // row 4 · level
   { k: () => ({ top: 'SPL dB' + (P.weight === 'Z' ? 'Z' : P.weight), main: S.running && isFinite(S.spl.inst) ? S.spl.inst.toFixed(1) : '--', sub: P.timeW, bg: '#10202c', fg: '#e8f4ff', fg2: C.dim, big: true }), press: () => { P.timeW = P.timeW === 'fast' ? 'slow' : 'fast'; changed(); } },
   { k: () => onKey('WEIGHTING', P.weight, 'A / C / Z'), press: () => { P.weight = cyc(['A', 'C', 'Z'], P.weight); buildSplWeights(); changed(); } },
@@ -2215,6 +2227,14 @@ const ACTIONS = [
   { k: () => onKey('RTA', P.rtaAvg === 'none' ? 'INST' : P.rtaAvg.toUpperCase(), 'response'), press: () => { P.rtaAvg = cyc(['none', 'fast', 'slow'], P.rtaAvg); changed(); } },
   { k: () => onKey('DECK', P.deckBright + '%', 'brightness'), press: () => { P.deckBright = +cyc([20, 40, 70, 100], P.deckBright); deckBrightness(); changed(); } }
 ];
+// summary of the vocal check for the deck: number of suggested cuts, coloured by the worst finding
+function voiceKey(){
+  const V = VOICE[voiceSrc()], R = S.voiceLast;
+  if (V.secs < VOICE_MIN_SECS || !R) return { top: 'VOICE', main: V.count ? '…' : '—', sub: V.count ? 'collecting' : 'no speech yet', bg: '#151a21', fg: C.dim, fg2: C.faint };
+  const cuts = R.findings.filter(x => x.filter).length, worst = R.findings.some(x => x.sev === 'bad') ? 'bad' : R.findings.some(x => x.sev === 'warn') ? 'warn' : R.findings.length ? 'info' : 'ok';
+  const bg = { bad: '#7a1a12', warn: '#6b4a12', info: '#1f3b52', ok: '#1f4d33' }[worst];
+  return { top: 'VOICE', main: worst === 'ok' ? 'CLEAN' : cuts ? cuts + (cuts === 1 ? ' CUT' : ' CUTS') : 'CHECK', sub: P.topView === 'voice' && P.voicePanel ? 'hide list' : 'show list', bg, fg: C.fg, fg2: '#d9cbb0' };
+}
 function traceKey(i){
   const t = TRACES[i];
   if (!t) return { top: 'TRACE ' + (i + 1), main: '—', sub: 'empty', bg: '#151a21', fg: C.faint, fg2: C.faint };
