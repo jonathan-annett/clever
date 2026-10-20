@@ -127,14 +127,15 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
       <li><a href="#spec"><span class="n">06</span>Spectrograph</a></li>
       <li><a href="#spl"><span class="n">07</span>SPL meter</a></li>
       <li><a href="#levels"><span class="n">08</span>Levels and Bands</a></li>
-      <li><a href="#tf"><span class="n">09</span>Transfer function</a></li>
-      <li><a href="#tf-read"><span class="n">10</span>Reading the TF plots</a></li>
-      <li><a href="#traces"><span class="n">11</span>Traces</a></li>
-      <li><a href="#workflows"><span class="n">12</span>Common jobs</a></li>
-      <li><a href="#control"><span class="n">13</span>Phone, keys, Stream Deck</a></li>
-      <li><a href="#trouble"><span class="n">14</span>Troubleshooting</a></li>
-      <li><a href="#smaart"><span class="n">15</span>Coming from Smaart</a></li>
-      <li><a href="#glossary"><span class="n">16</span>Glossary</a></li>
+      <li><a href="#voice"><span class="n">09</span>Voice check</a></li>
+      <li><a href="#tf"><span class="n">10</span>Transfer function</a></li>
+      <li><a href="#tf-read"><span class="n">11</span>Reading the TF plots</a></li>
+      <li><a href="#traces"><span class="n">12</span>Traces</a></li>
+      <li><a href="#workflows"><span class="n">13</span>Common jobs</a></li>
+      <li><a href="#control"><span class="n">14</span>Phone, keys, Stream Deck</a></li>
+      <li><a href="#trouble"><span class="n">15</span>Troubleshooting</a></li>
+      <li><a href="#smaart"><span class="n">16</span>Coming from Smaart</a></li>
+      <li><a href="#glossary"><span class="n">17</span>Glossary</a></li>
     </ol>
   </nav>
 
@@ -305,8 +306,23 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
       <p>Tap a band's label to ignore it (useful for air-conditioning rumble or a constant hum), and the hot zone and tally will skip it. <span class="ui">Use all bands</span> brings them all back. Ignored bands are remembered by frequency, so they stay ignored if you change layout. Set the display range under <span class="ui">Bands › Floor / Ceiling</span>. Like Levels, Bands can show the mic or the reference input (<span class="ui">Mic in ▸</span>), for example to see what the send through the graphic carries.</p>
     </section>
 
+    <section id="voice">
+      <h2><span class="n">09</span>Voice check: is this a clean vocal?</h2>
+      <p>The <span class="ui">Voice</span> tab looks at a speech mic the way an experienced engineer listens to one. A voice should carry most of its energy between about 100 Hz and 5 kHz. Below 100 Hz is mostly pops, handling noise and rumble; above 5 kHz is texture and sibilance. If most of the energy is above 5 kHz, something is wrong.</p>
+      <p>While someone talks, clever builds an average spectrum of their voice. It only listens while the level is above the <strong>speech gate</strong>, so pauses don't count. It compares the result with the shape of natural speech, drawn as a grey band, and lists what it finds, with suggested channel-strip cuts:</p>
+      <ul>
+        <li><strong>Rumble and pops below 100 Hz</strong>: a high-pass frequency.</li>
+        <li><strong>Low-mid build-up</strong> (150–450 Hz): usually a talker too close to a directional mic. A broad cut.</li>
+        <li><strong>Resonances</strong>: narrow peaks, often from a lectern, a hard surface or the mic itself, and often where feedback starts. A narrow notch.</li>
+        <li><strong>Nasal</strong>, <strong>harsh</strong> and <strong>sibilant</strong> regions: gentle cuts, or a de-esser for sibilance.</li>
+        <li><strong>Thin</strong> or <strong>lacking presence</strong>: these get advice rather than an EQ, because boosting costs feedback margin. Moving the mic usually fixes them.</li>
+      </ul>
+      <p>The bar at the top of the panel shows how the energy splits across the three zones. Each suggestion is numbered on the graph, and the dashed line shows the predicted result. Cutting is generally safe, unless it takes so much out of the speech band that you need more gain to hear the talker, which eats into feedback margin. So clever estimates how much speech level each cut costs and warns when the total gets too high.</p>
+      <p>Press <span class="ui">New talker</span> when someone else steps up. <span class="ui">Set gate from noise</span>, pressed while nobody is talking, puts the speech gate just above the room noise.</p>
+    </section>
+
     <section id="tf">
-      <h2><span class="n">09</span>Transfer function: setting it up</h2>
+      <h2><span class="n">10</span>Transfer function: setting it up</h2>
       <p>The transfer function needs a reference signal. There are two ways to get one.</p>
       <h3>Option A: internal loopback (quickest)</h3>
       <p>clever generates pink noise itself, plays it out of the computer's audio output, and uses its own copy as the reference. Set <span class="ui">Inputs › Reference</span> to <span class="ui">Generator (internal loopback)</span>. Connect the computer's output to the system you want to measure: a speaker, or a channel on the desk.</p>
@@ -332,7 +348,7 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
     </section>
 
     <section id="tf-read">
-      <h2><span class="n">10</span>Reading the transfer function plots</h2>
+      <h2><span class="n">11</span>Reading the transfer function plots</h2>
       <h3>Magnitude: louder or quieter at each frequency</h3>
       <p>The bottom plot. The line shows how much louder (above 0) or quieter (below 0) the system makes each frequency compared with what went in. A perfectly flat system would be a flat line. Hills are frequencies the system exaggerates; valleys are ones it loses.</p>
       <p>The line's height depends on gain settings, so its absolute position isn't important; its <em>shape</em> is. Press <span class="ui">Center trace</span> to slide it to the middle of the plot.</p>
@@ -397,7 +413,7 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
     </section>
 
     <section id="traces">
-      <h2><span class="n">11</span>Traces: before and after</h2>
+      <h2><span class="n">12</span>Traces: before and after</h2>
       <p>A trace is a frozen snapshot of the transfer function. Press <span class="ui">Capture</span> (or <kbd>C</kbd>) and the current magnitude and phase are stored and drawn in a fixed colour behind the live trace.</p>
       <ul>
         <li>Capture before you EQ, then watch the live trace move as you adjust.</li>
@@ -409,10 +425,10 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
     </section>
 
     <section id="workflows">
-      <h2><span class="n">12</span>Common jobs, step by step</h2>
+      <h2><span class="n">13</span>Common jobs, step by step</h2>
       <h3>Tune a PA with EQ</h3>
       <ol class="steps">
-        <li><span>Set up the transfer function (section 9) with the mic at a typical listening position, about ear height, away from walls.</span></li>
+        <li><span>Set up the transfer function (section 10) with the mic at a typical listening position, about ear height, away from walls.</span></li>
         <li><span>Find delay, use 1/6 octave smoothing, 16 averages, and coherence blanking at 0.5. Press <span class="ui">Center trace</span>.</span></li>
         <li><span>Capture the trace. Move the mic to two or three other seats and capture there too.</span></li>
         <li><span>Look for broad shapes that appear at every position with good coherence. Those are the system; EQ them with wide, gentle filters.</span></li>
@@ -442,6 +458,14 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
         <li><span>Bring the gain up again; the next band will take over. Stop after three or four cuts, or sooner if the mic starts to sound thin.</span></li>
         <li><span>If a constant noise keeps winning (air conditioning, a hum), tap its label to ignore it.</span></li>
       </ol>
+      <h3>Clean up a lectern or panel mic</h3>
+      <ol class="steps">
+        <li><span>Send the vocal's group output, after its EQ, to the interface's reference input. If the desk can send a stereo pair, put that on the left and the desk's solo bus on the right, and pick the channel under <span class="ui">Ref channel</span>.</span></li>
+        <li><span>Open the <span class="ui">Voice</span> tab with the source on <span class="ui">Ref in</span>. With nobody talking, press <span class="ui">Set gate from noise</span>.</span></li>
+        <li><span>Have the talker speak normally for a few seconds; ten or more is better. Watch the energy split and the suggestions build up.</span></li>
+        <li><span>Make the first suggestion on the channel strip, usually the high-pass or the biggest cut. The dashed line shows what to expect. Press <span class="ui">New talker</span> to measure again with the change in place.</span></li>
+        <li><span>Stop when the list says the voice looks clean, or when the cost warning appears. After that, moving the mic or coaching the talker does more than EQ.</span></li>
+      </ol>
       <h3>Keep a set under a noise limit</h3>
       <ol class="steps">
         <li><span>Calibrate the mic with a calibrator (section 4), then place it where the limit applies, usually front of house.</span></li>
@@ -451,7 +475,7 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
     </section>
 
     <section id="control">
-      <h2><span class="n">13</span>Phone, keyboard and Stream Deck</h2>
+      <h2><span class="n">14</span>Phone, keyboard and Stream Deck</h2>
       <h3>On a phone or tablet</h3>
       <ul>
         <li>In Chrome's menu, choose <strong>Add to home screen</strong>. clever then opens full screen, with Android's status and navigation bars hidden (swipe in from an edge to bring them back for a moment). It works without a signal once it's been opened online at least once.</li>
@@ -477,7 +501,7 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
         <tr><td><kbd>S</kbd></td><td>Show or hide the settings panel</td></tr>
         <tr><td><kbd>F</kbd></td><td>Full screen</td></tr>
         <tr><td><kbd>K</kbd></td><td>Change the coherence view</td></tr>
-        <tr><td><kbd>1</kbd> to <kbd>5</kbd></td><td>Top plot: RTA, Spectrograph, Impulse, Levels, Bands</td></tr>
+        <tr><td><kbd>1</kbd> to <kbd>6</kbd></td><td>Top plot: RTA, Spectrograph, Impulse, Levels, Bands, Voice</td></tr>
         <tr><td><kbd>M</kbd></td><td>Levels: change loudness method</td></tr>
         <tr><td><kbd>Enter</kbd></td><td>Levels: set the reference</td></tr>
       </table></div>
@@ -486,7 +510,7 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
     </section>
 
     <section id="trouble">
-      <h2><span class="n">14</span>Troubleshooting</h2>
+      <h2><span class="n">15</span>Troubleshooting</h2>
       <div class="tablewrap"><table>
         <tr><th>Problem</th><th>Try this</th></tr>
         <tr><td>Start does nothing, or says permission was blocked</td><td>Click the icon at the left of the address bar and allow the microphone. The page must be on <code>https://</code> or <code>localhost</code>.</td></tr>
@@ -505,7 +529,7 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
     </section>
 
     <section id="smaart">
-      <h2><span class="n">15</span>Coming from Smaart</h2>
+      <h2><span class="n">16</span>Coming from Smaart</h2>
       <p>If you know Smaart, most of clever will feel familiar. The names map like this.</p>
       <div class="tablewrap"><table>
         <tr><th>Smaart</th><th>clever</th></tr>
@@ -524,7 +548,7 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
     </section>
 
     <section id="glossary">
-      <h2><span class="n">16</span>Glossary</h2>
+      <h2><span class="n">17</span>Glossary</h2>
       <dl class="gloss">
         <dt>dB (decibel)</dt><dd>A ratio on a logarithmic scale. +6 dB is about double the voltage; +10 dB sounds roughly twice as loud.</dd>
         <dt>dBFS</dt><dd>Level relative to the loudest signal the input can record. 0 dBFS is the ceiling, so normal readings are negative.</dd>

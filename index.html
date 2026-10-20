@@ -116,7 +116,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .pane{display:grid;grid-template-rows:auto 1fr;min-height:0;border-bottom:1px solid var(--line)}
 .phead{display:flex;align-items:center;gap:10px;padding:4px max(10px,env(safe-area-inset-right,0px)) 4px 10px;background:var(--panel2);font-size:12px;color:var(--dim);flex-wrap:wrap;min-height:30px}
 .phead .title{font-weight:600;letter-spacing:.1em;text-transform:uppercase}
-.tabs{display:flex;gap:2px}
+.tabs{display:flex;gap:2px;flex-wrap:wrap}
 .tabs button{background:none;border:0;border-bottom:2px solid transparent;padding:3px 8px;cursor:pointer;color:var(--dim);font-weight:600;letter-spacing:.08em;text-transform:uppercase;font-size:12px}
 .tabs button.on{color:var(--fg);border-color:var(--accent)}
 .phead .ro{margin-left:auto;font:12px var(--mono);color:var(--fg);font-variant-numeric:tabular-nums}
@@ -148,6 +148,20 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
 .legend .cohbtn b{font-weight:600}
 .legend .cohbtn:hover{text-decoration:underline}
 .pctl{display:flex;align-items:center;gap:6px}
+.vpanel{position:absolute;right:42px;top:10px;width:min(340px,calc(100% - 100px));max-height:calc(100% - 50px);overflow:auto;background:rgba(14,18,23,.92);border:1px solid var(--grid2);border-radius:6px;padding:10px 12px;font-size:13px;line-height:1.4;z-index:2}
+.vpanel .vp-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.vpanel .x{background:none;border:0;color:var(--dim);cursor:pointer;font-size:16px;padding:0 4px}
+.vpanel .vp-split{display:flex;height:8px;border-radius:4px;overflow:hidden;gap:1px}
+.vpanel .vp-split-l{display:flex;justify-content:space-between;font:11px var(--mono);color:var(--dim);margin:3px 0 8px}
+.vpanel .vp-item{border-left:3px solid var(--accent);padding:4px 0 4px 8px;margin:6px 0}
+.vpanel .vp-bad{border-color:var(--clip)} .vpanel .vp-info{border-color:var(--live)}
+.vpanel .vp-h{font-weight:600;display:flex;align-items:center;gap:6px}
+.vpanel .vp-h i{font-style:normal;background:var(--accent);color:#111;border-radius:50%;width:18px;height:18px;display:inline-grid;place-items:center;font:700 11px var(--mono)}
+.vpanel .vp-bad .vp-h i{background:var(--clip)}
+.vpanel .vp-fix{font-family:var(--mono);font-size:12px;color:var(--fg);margin-top:2px}
+.vpanel .vp-cost{color:var(--dim)}
+.vpanel .vp-d{color:var(--dim);font-size:12px;margin-top:2px}
+.vpanel .vp-warn{color:var(--accent);font-size:12px} .vpanel .vp-note{color:var(--dim);font-size:12px} .vpanel .vp-good{color:var(--ok)} .vpanel .vp-wait{color:var(--dim)}
 .pctl .hint{color:var(--faint);font-size:12px}
 .btn.mini{padding:2px 9px;font-size:12px}
 .notice{position:fixed;z-index:12;left:50%;transform:translateX(-50%);top:120px;width:min(620px,calc(100vw - 32px));background:var(--panel2);border:1px solid var(--grid2);border-left:3px solid var(--accent);border-radius:6px;padding:10px 40px 10px 14px;font-size:14px;box-shadow:0 8px 24px rgba(0,0,0,.45)}
@@ -226,6 +240,18 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
           <div class="row" id="genFreqRow"><label for="genFreq">Frequency</label><input type="number" id="genFreq" min="10" max="24000" step="1"></div>
           <div class="row"><label for="genLevel">Level <span class="readout" id="genLevelV"></span></label><input type="range" id="genLevel" min="-60" max="0" step="1"></div>
           <p class="note">Level is RMS in dBFS. The generator also feeds the reference channel when Reference is set to the internal loopback.</p>
+        </div>
+      </details>
+
+      <details open>
+        <summary>Voice</summary>
+        <div class="body">
+          <div class="row"><label for="voiceSrc">Source</label><select id="voiceSrc"><option value="ref">Reference input</option><option value="meas">Measurement mic</option></select></div>
+          <div class="row"><label for="voiceTau">Average over</label><select id="voiceTau"><option value="10">Last 10 s of speech</option><option value="30">Last 30 s of speech</option><option value="0">Everything since New talker</option></select></div>
+          <div class="row"><label for="voiceGate">Speech gate</label><input type="number" id="voiceGate" step="1"></div>
+          <div class="btns"><button class="btn" id="voiceGateNoise">Set gate from noise</button></div>
+          <div class="row"><label for="voiceHpf">High-pass slope</label><select id="voiceHpf"><option value="2">12 dB/oct</option><option value="3">18 dB/oct</option><option value="4">24 dB/oct</option></select></div>
+          <p class="note">Checks a vocal against the shape of natural speech and suggests cuts for the channel strip: a high-pass for pops and rumble, low-mid cuts for proximity, notches for resonances, and gentle cuts for nasal, harsh or sibilant tones. It only listens while someone is speaking above the gate. Suggestions are cuts only, and it warns when they would cost enough speech level that you'd need more gain.</p>
         </div>
       </details>
 
@@ -387,13 +413,14 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
     <main class="main">
       <section class="pane">
         <div class="phead">
-          <div class="tabs" id="topTabs"><button data-v="rta">RTA</button><button data-v="spec">Spectrograph</button><button data-v="ir">Impulse</button><button data-v="lev">Levels</button><button data-v="bands">Bands</button></div>
+          <div class="tabs" id="topTabs"><button data-v="rta">RTA</button><button data-v="spec">Spectrograph</button><button data-v="ir">Impulse</button><button data-v="lev">Levels</button><button data-v="bands">Bands</button><button data-v="voice">Voice</button></div>
           <span class="pctl" id="levCtl" hidden><button class="btn mini primary" id="levSet" title="Set the reference from the recent average (Enter)">Set ref</button><button class="btn mini" id="levClear">Clear</button><button class="btn mini" id="levMetricBtn" title="Change loudness method (M)">LUFS</button><button class="btn mini" id="levSrcBtn" title="Measure the mic or the reference input">Mic in ▸</button><button class="btn mini" id="levZoomBtn" title="Zoom: 60 s, 3 min, 10 min (− and =, or the mouse wheel)">60 s</button></span>
+          <span class="pctl" id="voiceCtl" hidden><button class="btn mini" id="voiceSrcBtn" title="Check the mic or the reference input">Ref in ▸</button><button class="btn mini" id="voiceResetBtn" title="Start a new measurement, e.g. for the next talker">New talker</button><button class="btn mini" id="voicePanelBtn">Suggestions</button></span>
           <span class="pctl" id="bandsCtl" hidden><button class="btn mini" id="bandsSrcBtn" title="Measure the mic or the reference input">Mic in ▸</button><button class="btn mini" id="bandPresetBtn" title="Change band layout">31-band ▸</button><button class="btn mini" id="bandsReset">Use all bands</button><span class="hint">Tap a label to ignore a band</span></span>
           <span id="irInfo"></span><button class="btn" id="irApply" hidden style="padding:2px 8px;font-size:12px">Add to delay</button>
           <span class="ro" id="roTop"></span>
         </div>
-        <div class="plotwrap"><canvas class="plot" id="cvTop"></canvas><div class="idle" id="idle1"><div class="splash"><div class="wm">cle<em>v</em>er</div><div class="tag">RTA · transfer function · delay finder · SPL</div><div class="hint">Press Start to open the mic</div></div></div></div>
+        <div class="plotwrap"><canvas class="plot" id="cvTop"></canvas><div class="vpanel" id="voicePanel" hidden></div><div class="idle" id="idle1"><div class="splash"><div class="wm">cle<em>v</em>er</div><div class="tag">RTA · transfer function · delay finder · SPL</div><div class="hint">Press Start to open the mic</div></div></div></div>
       </section>
       <section class="pane tf">
         <div class="phead"><span class="title">Phase</span><span class="ro" id="roPhase"></span></div>
@@ -521,7 +548,92 @@ const DSP = (() => {
     const s2 = [1, -2, 1, 2 * (K * K - 1) / a0, (1 - K / Q + K * K) / a0];
     return [s1, s2];
   }
-  return { fft, hann, prefix, cum, gccPhat, aWeight, cWeight, interpLog, parseCal, kWeight };
+  /* ---------- vocal check ----------
+     Long-term average speech spectrum, 1/3-octave band levels (Byrne et al. 1994, approximate),
+     used only for its shape. Band-importance weights for the speech band (ANSI S3.5, approximate). */
+  const LTASS = [[50,33],[63,38.6],[80,43.5],[100,54.4],[125,57.7],[160,56.8],[200,60.2],[250,60.3],[315,59],[400,62.1],[500,62.1],[630,60.5],[800,56.8],[1000,53.7],[1250,53],[1600,52],[2000,48.7],[2500,48.1],[3150,46.8],[4000,45.6],[5000,44.5],[6300,44.3],[8000,43.7],[10000,43.4],[12500,41.3],[16000,40.7]];
+  const SII_W = [[160,.0083],[200,.0095],[250,.015],[315,.0289],[400,.044],[500,.0578],[630,.0653],[800,.0711],[1000,.0818],[1250,.0844],[1600,.0882],[2000,.0898],[2500,.0868],[3150,.0844],[4000,.0771],[5000,.0527],[6300,.0364],[8000,.0185]];
+  const ltass = f => interpLog(LTASS.map(x => x[0]), LTASS.map(x => x[1]), f);
+  // magnitude in dB of a suggested filter at f (analog prototypes; RBJ peaking bell, Butterworth high-pass)
+  function filterDb(flt, f){
+    if (flt.type === 'hpf') return -10 * Math.log10(1 + Math.pow(flt.f / f, 2 * (flt.order || 3)));
+    const w = f / flt.f, A = Math.pow(10, flt.g / 40), re = 1 - w * w;
+    return 10 * Math.log10((re * re + Math.pow(w * A / flt.q, 2)) / (re * re + Math.pow(w / (A * flt.q), 2)));
+  }
+  // fc: centres of 1/24-octave bands; L: their levels in dB (energy). Returns the zone split, deviation
+  // from the speech shape, findings with suggested cuts, the predicted curve after the cuts and their cost.
+  function voiceAnalyze(fc, L, opts = {}){
+    const n = fc.length, E = L.map(v => Math.pow(10, v / 10)), idx = f => { let b = 0; for (let i = 0; i < n; i++) if (Math.abs(Math.log(fc[i] / f)) < Math.abs(Math.log(fc[b] / f))) b = i; return b; };
+    const range = (a, b) => { const r = []; for (let i = 0; i < n; i++) if (fc[i] >= a && fc[i] < b) r.push(i); return r; };
+    const sumE = r => r.reduce((t, i) => t + E[i], 0);
+    // 1/3-octave sums (comparable with LTASS) and the mean of the surrounding 1/12–5/12 octave for peak prominence
+    const S3 = new Float64Array(n), M = new Float64Array(n);
+    for (let i = 0; i < n; i++){
+      let e = 0; for (let j = Math.max(0, i - 4); j <= Math.min(n - 1, i + 3); j++) e += E[j];
+      S3[i] = 10 * Math.log10(e + 1e-30);
+      let m = 0, c = 0; for (let j = Math.max(0, i - 10); j <= Math.min(n - 1, i + 10); j++){ if (Math.abs(j - i) < 3) continue; m += E[j]; c++; }   // flanks only, so a peak doesn't raise its own baseline
+      M[i] = 10 * Math.log10(m / c + 1e-30);
+    }
+    const ref = range(300, 2000); let off = 0; ref.forEach(i => off += S3[i] - ltass(fc[i])); off /= ref.length || 1;
+    const D = new Float64Array(n); for (let i = 0; i < n; i++) D[i] = S3[i] - ltass(fc[i]) - off;
+    const meanD = (a, b) => { const r = range(a, b); return r.length ? r.reduce((t, i) => t + D[i], 0) / r.length : 0; };
+    const peakIn = (a, b) => { let best = -1; for (const i of range(a, b)) if (best < 0 || D[i] > D[best]) best = i; return best; };
+    const eSub = sumE(range(0, 100)), eCore = sumE(range(100, 5000)), eHi = sumE(range(5000, 1e9)), eAll = eSub + eCore + eHi || 1;
+    const split = { sub: eSub / eAll, core: eCore / eAll, hi: eHi / eAll };
+    const F = [], cuts = [];
+    const r05 = v => Math.round(v * 2) / 2;
+    const add = (kind, sev, title, detail, flt) => { F.push({ kind, sev, title, detail, filter: flt || null }); if (flt) cuts.push(flt); };
+    // energy mostly above 5 kHz: something is wrong, not an EQ job
+    if (10 * Math.log10((eHi + 1e-30) / (eCore + 1e-30)) > -3)
+      add('hf', 'bad', 'Most of the energy is above 5 kHz', 'A voice should sit mostly between 100 Hz and 5 kHz. Check for hiss, a ringing frequency, sibilance, a faulty or wrong mic, or a very bright EQ before cutting anything.');
+    // pops and rumble below 100 Hz
+    const dSub = meanD(50, 100);
+    if (dSub > 6){
+      const f = meanD(125, 160) > 8 ? 140 : meanD(100, 125) > 6 ? 120 : 100;
+      add('sub', dSub > 12 ? 'bad' : 'warn', 'Rumble and pops below 100 Hz', `About ${dSub.toFixed(0)} dB more low end than a voice has: handling noise, breath pops or proximity effect.`, { type: 'hpf', f, order: opts.hpfOrder || 3 });
+    }
+    // proximity / boxiness
+    const dLM = meanD(150, 450);
+    if (dLM > 3){
+      const i = peakIn(150, 450);
+      add('lowmid', dLM > 6 ? 'bad' : 'warn', 'Low-mid build-up', `${dLM.toFixed(1)} dB more 150–450 Hz than a natural voice: the talker is close to the mic (proximity effect) or the sound is boxy.`, { type: 'bell', f: Math.round(fc[i]), g: -r05(Math.min(dLM + 1, 8)), q: 1.0 });
+    }
+    const dNas = meanD(600, 1600);
+    if (dNas > 4){ const i = peakIn(600, 1600); add('nasal', 'warn', 'Nasal or honky', `${dNas.toFixed(1)} dB extra around ${fc[i] >= 1000 ? (fc[i] / 1000).toFixed(1) + ' kHz' : Math.round(fc[i]) + ' Hz'}.`, { type: 'bell', f: Math.round(fc[i]), g: -r05(Math.min(dNas, 6)), q: 1.4 }); }
+    const dHar = meanD(2000, 4500);
+    if (dHar > 4){ const i = peakIn(2000, 4500); add('harsh', 'warn', 'Harsh presence', `${dHar.toFixed(1)} dB extra in 2–4.5 kHz. This is where intelligibility lives, so cut gently.`, { type: 'bell', f: Math.round(fc[i]), g: -r05(Math.min(dHar, 4)), q: 1.4 }); }
+    const dSib = meanD(5000, 9000);
+    if (dSib > 5){ const i = peakIn(5000, 9000); add('sib', 'warn', 'Sibilance', `${dSib.toFixed(1)} dB extra in 5–9 kHz. A de-esser is the better fix if the desk has one.`, { type: 'bell', f: Math.round(fc[i]), g: -r05(Math.min(dSib, 6)), q: 2 }); }
+    // narrow resonances (often the feedback-prone ones too); stricter below 400 Hz where voice harmonics ripple
+    const peaks = [];
+    for (let i = 1; i < n - 1; i++){
+      const f = fc[i]; if (f < 150 || f > 8000) continue;
+      const p = L[i] - M[i]; if (p < (f < 400 ? 8 : 4) || L[i] < L[i - 1] || L[i] < L[i + 1]) continue;
+      peaks.push({ i, p });
+    }
+    peaks.sort((a, b) => b.p - a.p);
+    const taken = [];
+    for (const pk of peaks){
+      if (taken.length >= 3) break;
+      if (taken.some(t => Math.abs(pk.i - t.i) < 8)) continue;
+      let lo = pk.i, hi = pk.i; while (lo > 0 && L[lo - 1] > L[pk.i] - 3) lo--; while (hi < n - 1 && L[hi + 1] > L[pk.i] - 3) hi++;
+      const bw = Math.max(1, hi - lo + 1) / 24, q = Math.min(10, Math.max(2, Math.sqrt(Math.pow(2, bw)) / (Math.pow(2, bw) - 1)));
+      taken.push(pk);
+      const f = fc[pk.i];
+      add('res', pk.p > 9 ? 'bad' : 'warn', `Resonance at ${f >= 1000 ? (f / 1000).toFixed(2) + ' kHz' : Math.round(f) + ' Hz'}`, `A narrow peak ${pk.p.toFixed(1)} dB above its surroundings. Narrow peaks like this are often where feedback starts.`, { type: 'bell', f: Math.round(f), g: -r05(Math.min(pk.p, 10)), q: Math.round(q * 10) / 10 });
+    }
+    // things to fix with the mic, not with boosts
+    if (dSub <= 6 && meanD(120, 300) < -4) add('thin', 'info', 'Thin low end', 'Less body than a natural voice: the talker may be far from the mic, or the high-pass is set too high. Moving the mic closer beats boosting.');
+    if (meanD(2000, 5000) < -8) add('dull', 'info', 'Lacking presence', 'Less 2–5 kHz than a natural voice: the talker may be off-axis or far away. Aim the mic at the mouth rather than boosting.');
+    // predicted curve after the cuts, and what they cost in the speech-importance band
+    const C = new Float64Array(n); for (let i = 0; i < n; i++) for (const c of cuts) C[i] += filterDb(c, fc[i]);
+    const siiLevel = extra => { let e = 0; for (const [f, w] of SII_W){ const i = idx(f); e += w * Math.pow(10, (S3[i] + (extra ? extra(i) : 0)) / 10); } return 10 * Math.log10(e); };
+    const base = siiLevel();
+    for (const x of F) if (x.filter) x.cost = base - siiLevel(i => filterDb(x.filter, fc[i]));
+    const cost = base - siiLevel(i => C[i]);
+    return { split, D, S3, off, target: fc.map(f => ltass(f) + off), findings: F, cuts, predicted: Array.from(S3, (v, i) => v + C[i]), cost };
+  }
+  return { fft, hann, prefix, cum, gccPhat, aWeight, cWeight, interpLog, parseCal, kWeight, voiceAnalyze, filterDb };
 })();
 if (typeof module !== 'undefined') module.exports = DSP;
 </script>
@@ -540,7 +652,7 @@ const DEFAULTS = {
   genOn: false, genType: 'pink', genFreq: 1000, genLevel: -20,
   delayMs: 0,
   fftMode: 'mtw', avg: 8, smooth: 24, cohBlank: 0.5, cohView: 'lane', sideHidden: false, magRange: 20, magOffset: 0,
-  topView: 'rta', levMetric: 'lufs', levSpan: 1, levRange: 24, levRefWin: 10, levRef: {}, levSrc: 'meas', bandsSrc: 'meas', bandsFloor: -90, bandsCeil: -30, bandIgnore: [], bandIgnoreHz: null, bandPreset: 'iso31', bandCustom: '', bandTallySec: 10, bandGate: -60, thru: false, thruLevel: 0, monMode: 'off', monLevel: -20, monOut: '', rtaBands: '3', rtaAvg: 'fast', rtaUnits: 'dbfs', rtaTop: 0, rtaSpan: 100, peakHold: true,
+  topView: 'rta', levMetric: 'lufs', levSpan: 1, levRange: 24, levRefWin: 10, levRef: {}, levSrc: 'meas', bandsSrc: 'meas', bandsFloor: -90, bandsCeil: -30, bandIgnore: [], bandIgnoreHz: null, bandPreset: 'iso31', bandCustom: '', bandTallySec: 10, bandGate: -60, thru: false, thruLevel: 0, monMode: 'off', monLevel: -20, voiceSrc: 'ref', voiceTau: 30, voiceGate: -50, voiceHpf: 3, voicePanel: true, monOut: '', rtaBands: '3', rtaAvg: 'fast', rtaUnits: 'dbfs', rtaTop: 0, rtaSpan: 100, peakHold: true,
   specFloor: -110, specCeil: -40,
   serial: '', calAngle: '0', applyCal: true, splOffset: null, weight: 'A', timeW: 'fast', calRef: 94,
   micModel: 'umik', calActive: null, layout: null,
@@ -967,8 +1079,8 @@ function sizes(){
 function makeAcc(N){
   const M = N / 2 + 1, F = () => new Float64Array(M), G = () => new Float64Array(M + 1);
   return { N, M, n: 0, scale: 4 / (N * DSP.hann(N).s2), re: new Float64Array(N), im: new Float64Array(N),
-    gxr: F(), gxi: F(), gxx: F(), gyy: F(), rta: F(), rtaX: F(), inst: F(), coh: F(), rr: F(), ri: F(),
-    cRe: G(), cIm: G(), cXX: G(), cYY: G(), cCoh: G(), cRta: G(), cRtaX: G(), cInst: G() };
+    gxr: F(), gxi: F(), gxx: F(), gyy: F(), rta: F(), rtaX: F(), inst: F(), instX: F(), coh: F(), rr: F(), ri: F(),
+    cRe: G(), cIm: G(), cXX: G(), cYY: G(), cCoh: G(), cRta: G(), cRtaX: G(), cInst: G(), cInstX: G() };
 }
 function buildAnalysis(){
   S.accs = sizes().map(makeAcc);
@@ -1012,7 +1124,7 @@ function analyze(dt){
       const gR = yr * xr + yi * xi, gI = yi * xr - yr * xi, gX = xr * xr + xi * xi, gY = yr * yr + yi * yi;
       a.gxr[k] += al * (gR - a.gxr[k]); a.gxi[k] += al * (gI - a.gxi[k]);
       a.gxx[k] += al * (gX - a.gxx[k]); a.gyy[k] += al * (gY - a.gyy[k]);
-      a.rta[k] += arr * (gY - a.rta[k]); a.rtaX[k] += arr * (gX - a.rtaX[k]); a.inst[k] = gY;
+      a.rta[k] += arr * (gY - a.rta[k]); a.rtaX[k] += arr * (gX - a.rtaX[k]); a.inst[k] = gY; a.instX[k] = gX;
       const cr = a.gxr[k], ci = a.gxi[k], den = a.gxx[k] * a.gyy[k];
       a.coh[k] = den > 1e-30 ? Math.min(1, (cr * cr + ci * ci) / den) : 0;
       // residual sub-sample delay applied as a phase rotation
@@ -1021,9 +1133,9 @@ function analyze(dt){
     }
     DSP.prefix(a.rr, a.cRe, M); DSP.prefix(a.ri, a.cIm, M);
     DSP.prefix(a.gxx, a.cXX, M); DSP.prefix(a.gyy, a.cYY, M);
-    DSP.prefix(a.coh, a.cCoh, M); DSP.prefix(a.rta, a.cRta, M); DSP.prefix(a.rtaX, a.cRtaX, M); DSP.prefix(a.inst, a.cInst, M);
+    DSP.prefix(a.coh, a.cCoh, M); DSP.prefix(a.rta, a.cRta, M); DSP.prefix(a.rtaX, a.cRtaX, M); DSP.prefix(a.inst, a.cInst, M); DSP.prefix(a.instX, a.cInstX, M);
   }
-  computeTF(); computeRTA(dt); computeSpecRow(); pushBandsRow();
+  computeTF(); computeRTA(dt); computeSpecRow(); pushBandsRow(); pushVoice(dt);
   if (P.topView === 'ir') computeIR();
   return true;
 }
@@ -1439,8 +1551,8 @@ function drawIR(F){
   return '';
 }
 /* ---------------- Levels view ---------------- */
-const TOP_VIEWS = ['rta', 'spec', 'ir', 'lev', 'bands'];
-const TOP_NAMES = { rta: 'RTA', spec: 'Spectrograph', ir: 'Impulse', lev: 'Levels', bands: 'Bands' };
+const TOP_VIEWS = ['rta', 'spec', 'ir', 'lev', 'bands', 'voice'];
+const TOP_NAMES = { rta: 'RTA', spec: 'Spectrograph', ir: 'Impulse', lev: 'Levels', bands: 'Bands', voice: 'Voice' };
 const LEV_METRICS = ['lufs', 'leq', 'rms'];
 const levArr = () => P.levMetric === 'leq' ? LEV.w : P.levMetric === 'rms' ? LEV.r : LEV.k;
 const levMom = () => P.levMetric === 'leq' ? LEV.wm : P.levMetric === 'rms' ? LEV.rm : LEV.km;
@@ -1725,6 +1837,119 @@ function drawBands(F){
   const lvl = last ? bandsTotal(last, ign) : null;
   return (P.bandsSrc === 'ref' ? 'ref input · ' : 'mic · ') + (BAND_PRESETS[B.id] || {}).name + (lvl != null && isFinite(lvl) ? `  ·  level ${lvl.toFixed(1)} dBFS (gate ${gate})` : '') + (hotNow >= 0 && last ? `  ·  hot ${bandLabel(B.fc[hotNow])} Hz` : '');
 }
+/* ---------------- Voice view: is this a clean vocal? ---------------- */
+// speech-gated long-term average spectrum in 1/24-octave bands, for both inputs
+const VOICE_FC = []; for (let k = -104; k <= 96; k++) VOICE_FC.push(1000 * Math.pow(2, k / 24));   // 50 Hz to 16 kHz
+const mkVoice = () => ({ E: new Float64Array(VOICE_FC.length), secs: 0, count: 0, open: false, recent: [] });
+const VOICE = { meas: mkVoice(), ref: mkVoice() };
+const voiceSrc = () => P.voiceSrc === 'meas' ? 'meas' : 'ref';
+function pushVoice(dt){
+  if (!S.accs.length) return;
+  const n = VOICE_FC.length, h = Math.pow(2, 1 / 48), nyq = S.fs / 2, cum = DSP.cum;
+  for (const src of ['meas', 'ref']){
+    const V = VOICE[src], fr = new Float64Array(n); let core = 0;
+    for (let i = 0; i < n; i++){
+      const f = VOICE_FC[i]; if (f * h >= nyq){ fr[i] = 0; continue; }
+      const a = accFor(f), c = src === 'meas' ? a.cInst : a.cInstX, k = f * a.N / S.fs;
+      let lo = f / h * a.N / S.fs, hi = f * h * a.N / S.fs, p;
+      if (hi - lo < 1) p = (cum(c, k + 0.5, a.M) - cum(c, k - 0.5, a.M)) * (hi - lo); else p = cum(c, hi, a.M) - cum(c, lo, a.M);
+      let e = a.scale * p; if (src === 'meas') e *= Math.pow(10, -calAt(f) / 10);
+      fr[i] = e; if (f >= 100 && f < 5000) core += e;
+    }
+    const lvl = 10 * Math.log10(core + 1e-20);
+    V.recent.push(lvl); if (V.recent.length > 30) V.recent.shift();
+    V.open = lvl >= +P.voiceGate;
+    if (!V.open) continue;   // only speech counts: silence leaves the average alone
+    V.count++; V.secs += dt;
+    const tau = +P.voiceTau, al = tau > 0 ? Math.max(dt / tau, 1 / V.count) : 1 / V.count;
+    for (let i = 0; i < n; i++) V.E[i] += al * (fr[i] - V.E[i]);
+  }
+}
+function voiceReset(){ for (const v of Object.values(VOICE)){ v.E.fill(0); v.secs = 0; v.count = 0; } S.dirty = true; S.voicePanelT = 0; }
+function voiceGateFromNoise(){
+  const r = VOICE[voiceSrc()].recent; if (!r.length){ toast('Start the analyzer first, with nobody talking.'); return; }
+  const e = r.reduce((t, v) => t + Math.pow(10, v / 10), 0) / r.length;
+  P.voiceGate = Math.max(-80, Math.round(10 * Math.log10(e + 1e-20) + 8)); changed(); toast(`Speech gate set to ${P.voiceGate} dBFS (8 dB above the current noise)`);
+}
+const VOICE_MIN_SECS = 4;
+function fmtHz(f){ return f >= 1000 ? (+(f / 1000).toFixed(f >= 10000 ? 1 : 2)) + ' kHz' : Math.round(f) + ' Hz'; }
+function drawVoice(F){
+  const g = F.g, V = VOICE[voiceSrc()], ok = V.secs >= VOICE_MIN_SECS;
+  const L = Array.from(V.E, e => 10 * Math.log10(e + 1e-20));
+  const R = V.count ? DSP.voiceAnalyze(VOICE_FC, L, { hpfOrder: +P.voiceHpf }) : null;
+  S.voiceLast = R;
+  // y range from the 1/3-octave curve
+  let mx = -Infinity; if (R) for (let i = 0; i < R.S3.length; i++) if (VOICE_FC[i] > 80 && VOICE_FC[i] < 8000 && R.S3[i] > mx) mx = R.S3[i];
+  const top = isFinite(mx) ? Math.ceil((mx + 6) / 6) * 6 : -20, bot = top - 54;
+  const yOf = v => F.y1 - (v - bot) / (top - bot) * (F.y1 - F.y0);
+  // zones
+  const zone = (a, b, col, alpha, label) => { const xa = fx(F, Math.max(20, a)), xb = fx(F, Math.min(20000, b)); g.fillStyle = col; g.globalAlpha = alpha; g.fillRect(xa, F.y0, xb - xa, F.y1 - F.y0); g.globalAlpha = 1; g.fillStyle = C.faint; g.font = `11px ${UI_FONT}`; g.textAlign = 'center'; g.textBaseline = 'top'; g.fillText(label, (xa + xb) / 2, F.y0 + 4); };
+  zone(20, 100, C.clip, 0.07, 'pops & rumble'); zone(100, 5000, C.ok, 0.03, 'voice'); zone(5000, 20000, C.live, 0.05, 'texture & sibilance');
+  freqGrid(F); yGrid(F, bot, top, 6, v => v.toFixed(0));
+  clip(F);
+  if (R){
+    // natural-voice shape with ±3 dB tolerance
+    g.fillStyle = C.fg; g.globalAlpha = 0.07; g.beginPath();
+    VOICE_FC.forEach((f, i) => i ? g.lineTo(fx(F, f), yOf(R.target[i] + 3)) : g.moveTo(fx(F, f), yOf(R.target[i] + 3)));
+    for (let i = VOICE_FC.length - 1; i >= 0; i--) g.lineTo(fx(F, VOICE_FC[i]), yOf(R.target[i] - 3));
+    g.closePath(); g.fill(); g.globalAlpha = 1;
+    series(F, VOICE_FC, R.target, yOf, C.dim, 1, {});
+    // fine detail, smoothed curve, and the predicted result of the suggested cuts
+    const fine = L.map(v => v + 10 * Math.log10(8));   // 1/24-oct band level shown on the 1/3-oct scale
+    g.globalAlpha = 0.45; series(F, VOICE_FC, fine, yOf, C.live, 1); g.globalAlpha = 1;
+    series(F, VOICE_FC, Array.from(R.S3), yOf, C.live, 2.2);
+    if (ok && R.cuts.length){ g.setLineDash([6, 4]); series(F, VOICE_FC, R.predicted, yOf, C.accent, 1.8); g.setLineDash([]); }
+    // numbered markers on the suggestions
+    if (ok){
+      let k = 0;
+      for (const x of R.findings){
+        if (!x.filter) continue; k++;
+        const f = x.filter.f, i = VOICE_FC.reduce((b, v, j) => Math.abs(Math.log(v / f)) < Math.abs(Math.log(VOICE_FC[b] / f)) ? j : b, 0);
+        const cx = fx(F, f), cy = Math.max(F.y0 + 22, yOf(R.S3[i]) - 16);
+        g.fillStyle = x.sev === 'bad' ? C.clip : C.accent; g.beginPath(); g.arc(cx, cy, 9, 0, Math.PI * 2); g.fill();
+        g.fillStyle = '#111'; g.font = `700 11px ${MONO}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(String(k), cx, cy + 0.5);
+      }
+    }
+  }
+  hoverLine(F); g.restore();
+  // gate and progress
+  g.font = `11px ${MONO}`; g.textAlign = 'left'; g.textBaseline = 'bottom';
+  g.fillStyle = V.open ? C.ok : C.faint;
+  g.fillText(V.open ? '● speech' : '○ waiting for speech', F.x0 + 8, F.y1 - 6);
+  g.fillStyle = C.dim; g.fillText(`${V.secs.toFixed(0)} s collected`, F.x0 + 150, F.y1 - 6);
+  voicePanel(R, V, ok);
+  if (S.hoverF != null && R){
+    const i = VOICE_FC.reduce((b, v, j) => Math.abs(Math.log(v / S.hoverF)) < Math.abs(Math.log(VOICE_FC[b] / S.hoverF)) ? j : b, 0);
+    return `${fmtHz(S.hoverF)}  ${R.S3[i].toFixed(1)} dBFS  ${R.D[i] >= 0 ? '+' : ''}${R.D[i].toFixed(1)} dB vs natural`;
+  }
+  return (voiceSrc() === 'ref' ? 'ref input' : 'mic') + ` · dBFS per 1/3 oct · gate ${P.voiceGate} dBFS`;
+}
+function voicePanel(R, V, ok){
+  const el = $('#voicePanel'); if (!el) return;
+  const now = performance.now(); if (now - (S.voicePanelT || 0) < 500) return; S.voicePanelT = now;
+  const esc = t => String(t).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+  let h = '';
+  if (!V.count) h = '<p class="vp-wait">Talk into the mic for a few seconds. Only speech above the gate is collected.</p>';
+  else if (!ok) h = `<p class="vp-wait">Collecting speech… ${V.secs.toFixed(1)} of ${VOICE_MIN_SECS} s</p>`;
+  else {
+    const sp = R.split, pct = v => Math.round(v * 100);
+    h += `<div class="vp-split"><span style="flex:${Math.max(sp.sub, .02)};background:var(--clip)"></span><span style="flex:${Math.max(sp.core, .02)};background:var(--ok)"></span><span style="flex:${Math.max(sp.hi, .02)};background:var(--live)"></span></div>`;
+    h += `<div class="vp-split-l"><span>&lt;100 Hz ${pct(sp.sub)}%</span><span>voice ${pct(sp.core)}%</span><span>&gt;5 kHz ${pct(sp.hi)}%</span></div>`;
+    if (!R.findings.length) h += '<p class="vp-good">Looks like a clean, natural voice. Nothing to cut.</p>';
+    let k = 0;
+    for (const x of R.findings){
+      const f = x.filter, num = f ? ++k : '';
+      const what = !f ? '' : f.type === 'hpf' ? `High-pass at <b>${f.f} Hz</b>, ${f.order * 6} dB/oct` : `Cut <b>${Math.abs(f.g)} dB</b> at <b>${fmtHz(f.f)}</b>, Q ${f.q}`;
+      h += `<div class="vp-item vp-${x.sev}"><div class="vp-h">${num ? `<i>${num}</i>` : ''}${esc(x.title)}</div>${what ? `<div class="vp-fix">${what}${f.type !== 'hpf' && x.cost > 0.05 ? ` <span class="vp-cost">costs ${x.cost.toFixed(1)} dB of speech</span>` : ''}</div>` : ''}<div class="vp-d">${esc(x.detail)}</div></div>`;
+    }
+    if (R.cuts.length) h += R.cost > 3
+      ? `<p class="vp-warn">Together these cuts take <b>${R.cost.toFixed(1)} dB</b> out of the speech band, so you'd need about that much more gain, which eats feedback margin. Start with the first one or two.</p>`
+      : `<p class="vp-note">Together the cuts cost ${R.cost.toFixed(1)} dB of speech level. The dashed line shows the result.</p>`;
+  }
+  el.innerHTML = `<div class="vp-top"><b>Vocal check</b><button class="x" id="vpHide" aria-label="Hide">–</button></div>` + h;
+  $('#vpHide').onclick = () => { P.voicePanel = false; changed(); };
+}
+
 function cycleBandPreset(){
   const ids = Object.keys(BAND_PRESETS).filter(id => id !== 'custom' || parseBandList(P.bandCustom).length >= 2);
   P.bandPreset = ids[(ids.indexOf(P.bandPreset) + 1) % ids.length]; changed();
@@ -1736,6 +1961,7 @@ function drawTop(){
   else if (P.topView === 'spec') ro = drawSpec(F);
   else if (P.topView === 'lev') ro = drawLevels(F);
   else if (P.topView === 'bands') ro = drawBands(F);
+  else if (P.topView === 'voice') ro = drawVoice(F);
   else ro = drawIR(F);
   if (P.topView !== 'ir'){ $('#irInfo').textContent = ''; $('#irApply').hidden = true; }
   $('#roTop').textContent = ro;
@@ -1948,7 +2174,7 @@ const ACTIONS = [
   { k: () => onKey('DELAY', '−0.1', 'ms'), press: () => setDelay(P.delayMs - 0.1) },
   { k: () => onKey('DELAY', '+0.1', 'ms'), press: () => setDelay(P.delayMs + 0.1) },
   // row 2 · analysis
-  { k: () => onKey('TOP VIEW', { rta: 'RTA', spec: 'SPECT', ir: 'IMPULSE', lev: 'LEVELS', bands: 'BANDS' }[P.topView], 'cycle'), press: () => { P.topView = cyc(TOP_VIEWS, P.topView); changed(); } },
+  { k: () => onKey('TOP VIEW', { rta: 'RTA', spec: 'SPECT', ir: 'IMPULSE', lev: 'LEVELS', bands: 'BANDS', voice: 'VOICE' }[P.topView], 'cycle'), press: () => { P.topView = cyc(TOP_VIEWS, P.topView); changed(); } },
   { k: () => onKey('RTA', P.rtaBands === 'line' ? 'LINE' : '1/' + P.rtaBands, 'bands'), press: () => { P.rtaBands = cyc(['line', '1', '3', '6', '12', '24'], P.rtaBands); buildRtaBands(); changed(); } },
   { k: () => onKey('SMOOTH', SMOOTH_LBL[P.smooth], 'octave'), press: () => { P.smooth = +cyc([0, 48, 24, 12, 6, 3, 1], P.smooth); changed(); } },
   { k: () => onKey('AVERAGE', P.avg == 0 ? 'INF' : String(P.avg), 'frames'), press: () => { P.avg = +cyc([1, 2, 4, 8, 16, 32, 0], P.avg); changed(); } },
@@ -2123,7 +2349,11 @@ function syncUI(){
   $('#cohBtnLbl').textContent = COH_LABEL[P.cohView] || 'Lane';
   set('cohView', P.cohView);
   $('#layoutBtn').textContent = P.layout === 'rta' ? 'ALL PANES' : (TOP_NAMES[P.topView] || 'RTA').toUpperCase() + ' ONLY';
-  $('#levCtl').hidden = P.topView !== 'lev'; $('#bandsCtl').hidden = P.topView !== 'bands';
+  $('#levCtl').hidden = P.topView !== 'lev'; $('#bandsCtl').hidden = P.topView !== 'bands'; $('#voiceCtl').hidden = P.topView !== 'voice';
+  $('#voicePanel').hidden = P.topView !== 'voice' || !P.voicePanel; $('#voicePanelBtn').classList.toggle('on', !!P.voicePanel);
+  $('#voiceSrcBtn').textContent = (voiceSrc() === 'ref' ? 'Ref in' : 'Mic in') + ' ▸';
+  ['voiceSrc', 'voiceTau', 'voiceGate', 'voiceHpf'].forEach(k => set(k, P[k]));
+  S.voicePanelT = 0;
   $('#levMetricBtn').textContent = levShort() + ' ▸';
   $('#levZoomBtn').textContent = levSpanLabel();
   $('#monLevelV').textContent = P.monLevel + ' dB';
@@ -2146,7 +2376,7 @@ function syncUI(){
   $('#topGen').textContent = 'GEN ' + (P.genOn ? P.genType.toUpperCase() + ' ' + P.genLevel : 'OFF'); $('#topGen').classList.toggle('on', !!P.genOn);
   $('#runBtn').textContent = S.starting ? 'Starting…' : S.running ? 'Stop' : 'Start'; $('#runBtn').classList.toggle('on', S.running);
   $('#brand').classList.toggle('on', S.running);
-  $('#idle1').hidden = S.running || (P.topView === 'lev' && LEV.n > 0) || (P.topView === 'bands' && BANDS.rows.length > 0);
+  $('#idle1').hidden = S.running || (P.topView === 'lev' && LEV.n > 0) || (P.topView === 'bands' && BANDS.rows.length > 0) || (P.topView === 'voice' && VOICE[voiceSrc()].count > 0);
   const m = P.delayMs * 0.343;
   $('#delayBig').innerHTML = `${P.delayMs.toFixed(2)} ms <small>${m.toFixed(2)} m · ${(m * 3.28084).toFixed(1)} ft</small>`;
   $('#topDelay').textContent = P.delayMs.toFixed(2) + ' ms';
@@ -2194,6 +2424,11 @@ bind('bandCustom', 'bandCustom', { after: () => { if (P.bandPreset === 'custom' 
 bind('bandTallySec', 'bandTallySec', { num: true });
 bind('bandGate', 'bandGate', { num: true });
 bind('levSrc', 'levSrc');
+bind('voiceSrc', 'voiceSrc'); bind('voiceTau', 'voiceTau', { num: true }); bind('voiceGate', 'voiceGate', { num: true }); bind('voiceHpf', 'voiceHpf', { num: true });
+$('#voiceGateNoise').onclick = voiceGateFromNoise;
+$('#voiceResetBtn').onclick = () => { voiceReset(); toast('Voice check restarted'); };
+$('#voiceSrcBtn').onclick = () => { P.voiceSrc = voiceSrc() === 'ref' ? 'meas' : 'ref'; changed(); };
+$('#voicePanelBtn').onclick = () => { P.voicePanel = !P.voicePanel; changed(); };
 bind('monMode', 'monMode', { after: () => { if (P.monMode !== 'off' && !S.running) toast('Press Start to hear the monitor.'); monBuild(); } });
 bind('thru', 'thru', { after: () => { thruApply(); if (P.thru && P.genOn) toast('The generator is muted while pass-through is on.'); } });
 bind('thruLevel', 'thruLevel', { num: true, after: () => thruApply() });
@@ -2336,7 +2571,7 @@ document.addEventListener('keydown', e => {
   else if (k === 's') toggleSide();
   else if (k === 'f') toggleFullscreen();
   else if (k === 'k') cycleCohView();
-  else if (k >= '1' && k <= '5'){ P.topView = TOP_VIEWS[+k - 1]; changed(); }
+  else if (k >= '1' && k <= '6'){ P.topView = TOP_VIEWS[+k - 1]; changed(); }
   else if (k === 'm') cycleLevMetric();
   else if (P.topView === 'lev' && (k === '-' || k === '_')) levZoom(1);
   else if (P.topView === 'lev' && (k === '=' || k === '+')) levZoom(-1);

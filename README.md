@@ -12,11 +12,14 @@ A browser-based real-time audio analyzer for live sound: RTA, spectrograph, dual
 - RTA from 1/1 to 1/24 octave, spectrograph, and A/C/Z SPL meter with Leq
 - Levels: 10 minutes of loudness history in short-term LUFS (ITU-R BS.1770), 3 s Leq or RMS, opening at a 60 s view with 5 s and 60 s peak-to-mean boxes, a reference line and a drift readout for keeping a feed consistent
 - Bands: a waterfall laid out like a graphic EQ (31, 33 or 30-band third-octave, 15-band, 10-band or your own centre frequencies) with the loudest band highlighted, a hot-band tally and a big "pull this fader" readout for ringing out, and bands you can tap to ignore
+- Voice check: a speech-gated average of a vocal mic compared with natural speech, flagging pops and rumble, proximity build-up, resonances, nasal, harsh and sibilant areas, with suggested cuts and a warning when they'd cost too much speech level
+- Listen: headphone monitoring of the mic, the reference, or the mic minus the predicted reference (live echo cancellation)
+- Pass-through: play a music source on the reference input straight to the amp and measure with it
 - Captured traces with CSV import and export
 - Mic calibration profiles: miniDSP UMIK-1, Dayton iMM-6C, or any frequency/dB text file
 - Stream Deck control over WebHID (XL, MK.2, Original V2), plus an on-screen button console
 - Installable as a home-screen app with offline support; full screen on Android
-- Collapsible settings panel, full screen, and keyboard shortcuts (Space, G, D, C, R, L, S, F, K, M, 1–5)
+- Collapsible settings panel, full screen, and keyboard shortcuts (Space, G, D, C, R, L, S, F, K, M, 1–6)
 
 ## User guide
 
