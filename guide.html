@@ -372,6 +372,14 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
       <p>Phase matters most where two sources overlap, such as subs and mains at the crossover. If their phase traces line up there, they add together; if they're far apart, they cancel.</p>
       <h3>Delay and the impulse view</h3>
       <p>The <span class="ui">Impulse</span> tab in the top plot shows the system's response to a single click. A tall spike at 0 ms means the delay is set correctly. If the spike sits off zero, press <span class="ui">Add to delay</span> to correct it. Smaller spikes after the main one are reflections from walls and ceilings arriving later.</p>
+      <h3>Listening to the difference</h3>
+      <p>The <span class="ui">Listen</span> section in the settings panel plays the inputs to a pair of headphones, on their own output if your browser supports choosing one. Choose what to hear:</p>
+      <ul>
+        <li><strong>Mic</strong> and <strong>Reference</strong>: each input on its own, for comparison.</li>
+        <li><strong>Mic − reference</strong>: the reference subtracted after the measured delay and a matched level. Because the system changes the tone, this mostly sounds like a thin, phasey ghost of the programme: the difference in tone you can hear. Below about 100 Hz it can even add bass the mic didn't hear.</li>
+        <li><strong>Mic − predicted</strong>: the reference is first passed through the measured impulse response, then subtracted. Everything the system does predictably cancels, leaving what the reference can't explain: room noise, distortion, the reverb tail beyond about a third of a second, and anything that changes over time. It is the sound of low coherence.</li>
+      </ul>
+      <p>The section shows how much cancellation to expect, worked out from the coherence. In a simulated room, Mic − predicted removed about 20 dB; a real room will usually manage 10 to 20 dB, best in the lows. Press <span class="ui">Find delay</span> first, keep both inputs on one interface, and use headphones only: if the mic can hear this output, it will feed back.</p>
       <h3>Averages and smoothing</h3>
       <ul>
         <li><span class="ui">Averages</span>: how many measurements are combined. More gives a steadier, more reliable trace but reacts more slowly. 8 to 16 is a good default; use 1 or 2 to see changes instantly.</li>

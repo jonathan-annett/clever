@@ -223,6 +223,17 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
         </div>
       </details>
 
+      <details>
+        <summary>Listen</summary>
+        <div class="body">
+          <div class="row"><label for="monMode">Listen to</label><select id="monMode"><option value="off">Off</option><option value="mic">Mic</option><option value="ref">Reference</option><option value="sub">Mic − reference</option><option value="pred">Mic − predicted</option></select></div>
+          <div class="row" id="monOutRow"><label for="monOut">Headphones</label><select id="monOut"></select></div>
+          <div class="row"><label for="monLevel">Level <span class="readout" id="monLevelV"></span></label><input type="range" id="monLevel" min="-60" max="12" step="1"></div>
+          <p class="note" id="monInfo"></p>
+          <p class="note"><strong>Headphones only.</strong> If the mic can hear this output it will feed back. Mic − reference subtracts the reference after the measured delay and gain; Mic − predicted subtracts the reference passed through the measured impulse response, leaving what the reference can't explain: room noise, distortion, the late reverb tail and anything that changes. Find delay first, and keep both inputs on one interface. Pick a different output from the one feeding the PA.</p>
+        </div>
+      </details>
+
       <details open>
         <summary>Delay</summary>
         <div class="body">
@@ -523,7 +534,7 @@ const DEFAULTS = {
   genOn: false, genType: 'pink', genFreq: 1000, genLevel: -20,
   delayMs: 0,
   fftMode: 'mtw', avg: 8, smooth: 24, cohBlank: 0.5, cohView: 'lane', sideHidden: false, magRange: 20, magOffset: 0,
-  topView: 'rta', levMetric: 'lufs', levSpan: 1, levRange: 24, levRefWin: 10, levRef: {}, levSrc: 'meas', bandsSrc: 'meas', bandsFloor: -90, bandsCeil: -30, bandIgnore: [], bandIgnoreHz: null, bandPreset: 'iso31', bandCustom: '', bandTallySec: 10, bandGate: -60, rtaBands: '3', rtaAvg: 'fast', rtaUnits: 'dbfs', rtaTop: 0, rtaSpan: 100, peakHold: true,
+  topView: 'rta', levMetric: 'lufs', levSpan: 1, levRange: 24, levRefWin: 10, levRef: {}, levSrc: 'meas', bandsSrc: 'meas', bandsFloor: -90, bandsCeil: -30, bandIgnore: [], bandIgnoreHz: null, bandPreset: 'iso31', bandCustom: '', bandTallySec: 10, bandGate: -60, monMode: 'off', monLevel: -20, monOut: '', rtaBands: '3', rtaAvg: 'fast', rtaUnits: 'dbfs', rtaTop: 0, rtaSpan: 100, peakHold: true,
   specFloor: -110, specCeil: -40,
   serial: '', calAngle: '0', applyCal: true, splOffset: null, weight: 'A', timeW: 'fast', calRef: 94,
   micModel: 'umik', calActive: null, layout: null,
@@ -697,6 +708,8 @@ async function refreshDevices(){
   const ctxProto = window.AudioContext && AudioContext.prototype;
   $('#outRow').hidden = !(ctxProto && 'setSinkId' in ctxProto);
   P.outDev = fill($('#outDev'), OUTPUTS.filter(d => d.deviceId !== 'default'), [['', 'System default']], P.outDev);
+  $('#monOutRow').hidden = !('setSinkId' in HTMLMediaElement.prototype);
+  P.monOut = fill($('#monOut'), OUTPUTS.filter(d => d.deviceId !== 'default'), [['', 'System default']], P.monOut);
   $('#refChRow').hidden = P.refDev === 'gen';
 }
 
@@ -734,8 +747,9 @@ async function start(){
     const ms = await splitterFor(P.measDev);
     S.measLabel = S.streams[0]?.getAudioTracks()[0]?.label || '';
     ms.connect(cap, Math.min(1, +P.measCh), 1);
-    if (P.refDev === 'gen') gen.connect(cap, 0, 0);
-    else (await splitterFor(P.refDev)).connect(cap, Math.min(1, +P.refCh), 0);
+    S.srcMeas = { node: ms, out: Math.min(1, +P.measCh) };
+    if (P.refDev === 'gen'){ gen.connect(cap, 0, 0); S.srcRef = { node: gen, out: 0 }; }
+    else { const rs = await splitterFor(P.refDev); rs.connect(cap, Math.min(1, +P.refCh), 0); S.srcRef = { node: rs, out: Math.min(1, +P.refCh) }; }
 
     cap.port.onmessage = onAudio;
     S.gen = gen; S.cap = cap;
@@ -746,6 +760,7 @@ async function start(){
     buildAnalysis();
     S.running = true;
     keepAwake(true);
+    monBuild();
     await refreshDevices();
     autoPickCal();
     if (ctx.state === 'suspended') toast('Audio is paused by the browser. Click anywhere on the page to resume.', 5000);
@@ -767,6 +782,7 @@ async function keepAwake(on){
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.running) keepAwake(true); });
 async function stop(quiet){
   S.running = false;
+  monTeardown();
   keepAwake(false);
   S.streams.forEach(st => st.getTracks().forEach(t => t.stop())); S.streams = [];
   if (S.ctx){ try { await S.ctx.close(); } catch {} }
@@ -794,6 +810,115 @@ function onAudio(e){
   // SPL blocks
   if (ring.w - S.spl.pos > RB / 2) S.spl.pos = ring.w - SPL_N;
   while (ring.w - S.spl.pos >= SPL_N){ splBlock(S.spl.pos); refWBlock(S.spl.pos); S.spl.pos += SPL_N; }
+}
+
+/* ---------------- Listen (headphone monitor) ----------------
+   mic:  the measurement mic as clever hears it
+   ref:  the reference input
+   sub:  mic − g·ref, with the measured delay and a least-squares gain
+   pred: mic − (measured impulse response ⊛ ref): what the reference can't explain
+   The monitor goes to its own output through an <audio> element, so headphones needn't share the PA/generator output. */
+const MON_PRE = 256;   // samples of pre-delay on the mic path, so the predicted path can include slightly acausal IR taps
+const monWin = () => S.accs[0];
+function monTeardown(){
+  const M = S.mon; if (!M) return;
+  for (const n of M.nodes) { try { n.disconnect(); } catch {} }
+  if (M.el){ try { M.el.pause(); } catch {} M.el.srcObject = null; }
+  S.mon = null;
+}
+function monBuild(){
+  monTeardown();
+  if (!S.ctx || !S.running || !S.srcMeas || !S.srcRef || P.monMode === 'off') { monInfo(); return; }
+  const ctx = S.ctx, nodes = [], mk = n => (nodes.push(n), n), mode = P.monMode;
+  const out = mk(ctx.createGain()); out.gain.value = Math.pow(10, P.monLevel / 20);
+  const dest = mk(ctx.createMediaStreamDestination()); out.connect(dest);
+  const measG = mk(ctx.createGain()); measG.gain.value = P.polarity ? -1 : 1;
+  const measD = mk(ctx.createDelay(3)), refD = mk(ctx.createDelay(3));
+  S.srcMeas.node.connect(measG, S.srcMeas.out); measG.connect(measD);
+  S.srcRef.node.connect(refD, S.srcRef.out);
+  const M = { nodes, mode, out, measD, refD, el: null, refG: null, negG: null, conv: null, convG: null, tGain: 0, tIR: 0, g: 0 };
+  if (mode === 'mic') measD.connect(out);
+  else if (mode === 'ref') refD.connect(out);
+  else {
+    measD.connect(out);
+    if (mode === 'sub'){ M.refG = mk(ctx.createGain()); M.refG.gain.value = 0; refD.connect(M.refG); M.refG.connect(out); }
+    else { M.negG = mk(ctx.createGain()); M.negG.gain.value = -1; M.negG.connect(out); }
+  }
+  S.mon = M; monDelays(true);
+  const el = new Audio(); el.srcObject = dest.stream; M.el = el;
+  if (P.monOut && el.setSinkId) el.setSinkId(P.monOut).catch(() => toast('Could not use that headphone output; using the default.'));
+  el.play().catch(() => toast('The browser blocked audio. Change the Listen mode again to start it.'));
+  monInfo();
+}
+function monDelays(now){
+  const M = S.mon; if (!M) return;
+  const D = P.delayMs / 1000, pre = M.mode === 'pred' ? MON_PRE / S.fs : 0;
+  const md = M.mode === 'sub' || M.mode === 'pred' ? pre + Math.max(0, -D) : 0, rd = M.mode === 'sub' || M.mode === 'pred' ? Math.max(0, D) : 0;
+  const t = S.ctx.currentTime;
+  if (now){ M.measD.delayTime.value = md; M.refD.delayTime.value = rd; }
+  else { M.measD.delayTime.setTargetAtTime(md, t, 0.05); M.refD.delayTime.setTargetAtTime(rd, t, 0.05); }
+}
+// least-squares broadband gain of ref -> mic over 100 Hz to 8 kHz (delay-aligned cross-spectrum)
+function monGain(){
+  const a = monWin(); if (!a || !a.n) return null;
+  let sr = 0, sx = 0; const k0 = Math.ceil(100 * a.N / S.fs), k1 = Math.floor(8000 * a.N / S.fs);
+  for (let k = k0; k <= k1; k++){ sr += a.rr[k]; sx += a.gxx[k]; }
+  return sx > 1e-20 ? sr / sx : null;
+}
+// impulse response from the measured transfer function, weighted by coherence so unreliable bins don't add noise
+function monIR(){
+  const a = monWin(); if (!a || !a.n) return null;
+  const N = a.N, M = a.M, re = new Float64Array(N), im = new Float64Array(N);
+  let mx = 0; for (let k = 0; k < M; k++) if (a.gxx[k] > mx) mx = a.gxx[k];
+  const eps = mx * 1e-6 + 1e-30;
+  for (let k = 1; k < M - 1; k++){
+    const w = a.coh[k] / (a.gxx[k] + eps), hr = a.rr[k] * w, hi = a.ri[k] * w;
+    re[k] = hr; im[k] = hi; re[N - k] = hr; im[N - k] = -hi;
+  }
+  DSP.fft(re, im, true);
+  const L = N, b = new Float32Array(L), fadeIn = 32, fadeOut = Math.floor(L * 0.3);
+  for (let j = 0; j < L; j++){
+    let v = re[(j - MON_PRE + N) % N] / N;
+    if (j < fadeIn) v *= j / fadeIn;
+    if (j > L - fadeOut) v *= 0.5 + 0.5 * Math.cos(Math.PI * (j - (L - fadeOut)) / fadeOut);
+    b[j] = v;
+  }
+  return b;
+}
+function monSwapConv(taps){
+  const M = S.mon, ctx = S.ctx; if (!M || !taps) return;
+  const buf = ctx.createBuffer(1, taps.length, ctx.sampleRate); buf.copyToChannel(taps, 0);
+  const conv = ctx.createConvolver(); conv.normalize = false; conv.buffer = buf;
+  const g = ctx.createGain(), t = ctx.currentTime; g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + 0.08);
+  M.refD.connect(conv); conv.connect(g); g.connect(M.negG);
+  const oc = M.conv, og = M.convG;
+  if (og){ og.gain.setValueAtTime(og.gain.value, t); og.gain.linearRampToValueAtTime(0, t + 0.08); setTimeout(() => { try { oc.disconnect(); og.disconnect(); } catch {} }, 200); }
+  M.conv = conv; M.convG = g; M.nodes.push(conv, g);
+}
+function monTick(now){
+  const M = S.mon; if (!M || !S.running) return;
+  monDelays(false);
+  if (M.mode === 'sub' && now - M.tGain > 500){
+    M.tGain = now; const g = monGain();
+    if (g != null && isFinite(g)){ M.g = g; M.refG.gain.setTargetAtTime(-g, S.ctx.currentTime, 0.2); }
+  }
+  if (M.mode === 'pred' && now - M.tIR > 2000){ M.tIR = now; monSwapConv(monIR()); }
+  if (now - (M.tInfo || 0) > 1000){ M.tInfo = now; monInfo(); }
+}
+// what the current mode should achieve, from the averaged spectra (mic power that the model leaves behind)
+function monInfo(){
+  const el = $('#monInfo'); if (!el) return;
+  const a = monWin(), M = S.mon;
+  if (!M || !a || !a.n || (M.mode !== 'sub' && M.mode !== 'pred')){ el.textContent = ''; return; }
+  const k0 = Math.ceil(100 * a.N / S.fs), k1 = Math.floor(10000 * a.N / S.fs); let sy = 0, sres = 0;
+  const g = M.mode === 'sub' ? (monGain() || 0) : 0;
+  for (let k = k0; k <= k1; k++){
+    sy += a.gyy[k];
+    sres += M.mode === 'pred' ? a.gyy[k] * (1 - a.coh[k]) : Math.max(0, a.gyy[k] - 2 * g * a.rr[k] + g * g * a.gxx[k]);
+  }
+  if (sy <= 0){ el.textContent = ''; return; }
+  const db = -10 * Math.log10(Math.max(1e-6, sres / sy));
+  el.textContent = `Expected cancellation 100 Hz–10 kHz: ${db.toFixed(1)} dB` + (M.mode === 'sub' ? ` (gain ${g.toFixed(3)})` : '') + (P.delayMs === 0 ? '. Press Find delay first.' : '');
 }
 
 /* ---------------- analysis ---------------- */
@@ -1605,6 +1730,7 @@ function loop(now){
   }
   if (S.dirty){ drawTop(); drawPhase(); drawMag(); S.dirty = false; }
   drawMeters(dt);
+  monTick(now);
   requestAnimationFrame(loop);
 }
 
@@ -1962,10 +2088,11 @@ function syncUI(){
   $('#levCtl').hidden = P.topView !== 'lev'; $('#bandsCtl').hidden = P.topView !== 'bands';
   $('#levMetricBtn').textContent = levShort() + ' ▸';
   $('#levZoomBtn').textContent = levSpanLabel();
+  $('#monLevelV').textContent = P.monLevel + ' dB';
   LEV = LEVS[P.levSrc === 'ref' ? 'ref' : 'meas'];
   $('#levSrcBtn').textContent = (P.levSrc === 'ref' ? 'Ref in' : 'Mic in') + ' ▸';
   $('#bandsSrcBtn').textContent = (P.bandsSrc === 'ref' ? 'Ref in' : 'Mic in') + ' ▸';
-  ['levMetric', 'levSpan', 'levRange', 'levRefWin', 'bandsFloor', 'bandsCeil', 'bandPreset', 'bandCustom', 'bandTallySec', 'bandGate', 'levSrc', 'bandsSrc'].forEach(k => set(k, P[k]));
+  ['levMetric', 'levSpan', 'levRange', 'levRefWin', 'bandsFloor', 'bandsCeil', 'bandPreset', 'bandCustom', 'bandTallySec', 'bandGate', 'levSrc', 'bandsSrc', 'monMode', 'monLevel'].forEach(k => set(k, P[k]));
   $('#bandCustomRow').hidden = P.bandPreset !== 'custom';
   $('#bandPresetBtn').textContent = (BAND_PRESETS[bandSet().id] || BAND_PRESETS.iso31).short + ' ▸';
   const okSerial = serialDigits().length === 7;
@@ -2005,7 +2132,7 @@ bind('refDev', 'refDev', { after: restart });
 bind('refCh', 'refCh', { num: true, after: restart });
 bind('outDev', 'outDev', { after: async () => { if (S.ctx && S.ctx.setSinkId){ try { await S.ctx.setSinkId(P.outDev); } catch { toast('Could not switch output.'); } } } });
 bind('fs', 'fs', { num: true, after: restart });
-bind('polarity', 'polarity', { after: () => resetAverages() });
+bind('polarity', 'polarity', { after: () => { resetAverages(); monBuild(); } });
 bind('genType', 'genType', { after: sendGen });
 bind('genFreq', 'genFreq', { num: true, after: sendGen });
 bind('genLevel', 'genLevel', { num: true, after: sendGen });
@@ -2026,6 +2153,9 @@ bind('bandCustom', 'bandCustom', { after: () => { if (P.bandPreset === 'custom' 
 bind('bandTallySec', 'bandTallySec', { num: true });
 bind('bandGate', 'bandGate', { num: true });
 bind('levSrc', 'levSrc');
+bind('monMode', 'monMode', { after: () => { if (P.monMode !== 'off' && !S.running) toast('Press Start to hear the monitor.'); monBuild(); } });
+bind('monLevel', 'monLevel', { num: true, after: () => { if (S.mon) S.mon.out.gain.setTargetAtTime(Math.pow(10, P.monLevel / 20), S.ctx.currentTime, 0.03); } });
+bind('monOut', 'monOut', { after: () => { if (S.mon && S.mon.el && S.mon.el.setSinkId) S.mon.el.setSinkId(P.monOut).catch(() => toast('Could not use that output.')); } });
 bind('bandsSrc', 'bandsSrc');
 $('#levSrcBtn').onclick = () => { P.levSrc = P.levSrc === 'ref' ? 'meas' : 'ref'; changed(); };
 $('#bandsSrcBtn').onclick = () => { P.bandsSrc = P.bandsSrc === 'ref' ? 'meas' : 'ref'; changed(); };
@@ -2187,6 +2317,7 @@ window.addEventListener('resize', () => { S.dirty = true; drawCalPlot(); });
 
 // boot
 S.fs = +P.fs; buildAnalysis(); levInit();
+P.monMode = 'off';
 if (!P.levZoomV2){ P.levSpan = 1; P.levZoomV2 = true; save(); }
 // bring over the band ignore list from the old audiogeek analyzer (same origin, same 33 bands)
 if (!Array.isArray(P.bandIgnoreHz)){
