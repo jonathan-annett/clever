@@ -332,7 +332,7 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
         <summary>Bands</summary>
         <div class="body">
           <div class="row"><label for="bandsSrc">Source</label><select id="bandsSrc"><option value="meas">Measurement mic</option><option value="ref">Reference input</option><option value="aux">Solo (2nd ref channel)</option></select></div>
-          <div class="row"><label for="bandsWeight">Weighting</label><select id="bandsWeight"><option value="Z">Z (none)</option><option value="A">A</option><option value="C">C</option></select></div>
+          <div class="row"><label for="bandsWeight">Weighting</label><select id="bandsWeight"><option value="Z">Z (none)</option><option value="A">A</option><option value="C">C</option><option value="N">N (room noise, from Set from noise)</option></select></div>
           <div class="row"><label for="bandPreset">Layout</label><select id="bandPreset"><option value="iso31">31-band, 1/3 oct</option><option value="iso33">33-band, 1/3 oct (12.5 Hz up)</option><option value="dn30">30-band, 1/3 oct (25 Hz up)</option><option value="oct23">15-band, 2/3 oct</option><option value="oct1">10-band, octave</option><option value="custom">Custom</option></select></div>
           <div class="row" id="bandCustomRow"><label for="bandCustom">Centres (Hz)</label><input type="text" id="bandCustom" placeholder="e.g. 63 125 250 500 1k 2k 4k 8k" autocomplete="off"></div>
           <div class="row"><label for="bandTallySec">Hot tally</label><select id="bandTallySec"><option value="5">Last 5 s</option><option value="10">Last 10 s</option><option value="20">Last 20 s</option></select></div>
@@ -439,7 +439,7 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
           <div class="tabs" id="topTabs"><button data-v="rta">RTA</button><button data-v="spec">Spectrograph</button><button data-v="ir">Impulse</button><button data-v="lev">Levels</button><button data-v="bands">Bands</button><button data-v="voice">Voice</button></div>
           <span class="pctl" id="levCtl" hidden><button class="btn mini primary" id="levSet" title="Set the reference from the recent average (Enter)">Set ref</button><button class="btn mini" id="levClear">Clear</button><button class="btn mini" id="levMetricBtn" title="Change loudness method (M)">LUFS</button><button class="btn mini" id="levSrcBtn" title="Measure the mic or the reference input">Mic in ▸</button><button class="btn mini" id="levZoomBtn" title="Zoom: 60 s, 3 min, 10 min (− and =, or the mouse wheel)">60 s</button></span>
           <span class="pctl" id="voiceCtl" hidden><button class="btn mini" id="voiceSrcBtn" title="Check the mic or the reference input">Ref in ▸</button><button class="btn mini" id="voiceResetBtn" title="Start a new measurement, e.g. for the next talker">New talker</button><button class="btn mini" id="voicePanelBtn">Suggestions</button></span>
-          <span class="pctl" id="bandsCtl" hidden><button class="btn mini" id="bandsSrcBtn" title="Measure the mic, the reference input or the solo channel">Mic in ▸</button><button class="btn mini" id="bandsWeightBtn" title="A, C or Z weighting">Z ▸</button><button class="btn mini" id="bandPresetBtn" title="Change band layout">31-band ▸</button><button class="btn mini" id="bandsReset">Use all bands</button><span class="hint">Tap a label to ignore a band</span></span>
+          <span class="pctl" id="bandsCtl" hidden><button class="btn mini" id="bandsSrcBtn" title="Measure the mic, the reference input or the solo channel">Mic in ▸</button><button class="btn mini" id="bandsWeightBtn" title="Z, A, C or N (room noise) weighting">Z ▸</button><button class="btn mini" id="bandPresetBtn" title="Change band layout">31-band ▸</button><button class="btn mini" id="bandsReset">Use all bands</button><span class="hint">Tap a label to ignore a band</span></span>
           <span id="irInfo"></span><button class="btn" id="irApply" hidden style="padding:2px 8px;font-size:12px">Add to delay</button>
           <span class="ro" id="roTop"></span>
         </div>
@@ -700,7 +700,7 @@ const DEFAULTS = {
   genOn: false, genType: 'pink', genFreq: 1000, genLevel: -20,
   delayMs: 0,
   fftMode: 'mtw', avg: 8, smooth: 24, cohBlank: 0.5, cohView: 'lane', sideHidden: false, magRange: 20, magOffset: 0,
-  topView: 'rta', levMetric: 'lufs', levSpan: 1, levRange: 24, levRefWin: 10, levRef: {}, levSrc: 'meas', bandsSrc: 'meas', bandsWeight: 'Z', bandsFloor: -90, bandsCeil: -30, bandIgnore: [], bandIgnoreHz: null, bandPreset: 'iso31', bandCustom: '', bandTallySec: 10, bandGate: -60, thru: false, thruLevel: 0, refAux: false, monMode: 'off', monLevel: -20, voiceSrc: 'ref', voiceTau: 30, voiceGate: -50, voiceHpf: 3, voiceCfg: {}, voicePanel: true, monOut: '', rtaBands: '3', rtaAvg: 'fast', rtaUnits: 'dbfs', rtaTop: 0, rtaSpan: 100, peakHold: true,
+  topView: 'rta', levMetric: 'lufs', levSpan: 1, levRange: 24, levRefWin: 10, levRef: {}, levSrc: 'meas', bandsSrc: 'meas', bandsWeight: 'Z', bandNoise: null, bandsFloor: -90, bandsCeil: -30, bandIgnore: [], bandIgnoreHz: null, bandPreset: 'iso31', bandCustom: '', bandTallySec: 10, bandGate: -60, thru: false, thruLevel: 0, refAux: false, monMode: 'off', monLevel: -20, voiceSrc: 'ref', voiceTau: 30, voiceGate: -50, voiceHpf: 3, voiceCfg: {}, voicePanel: true, monOut: '', rtaBands: '3', rtaAvg: 'fast', rtaUnits: 'dbfs', rtaTop: 0, rtaSpan: 100, peakHold: true,
   specFloor: -110, specCeil: -40,
   serial: '', calAngle: '0', applyCal: true, splOffset: null, weight: 'A', timeW: 'fast', calRef: 94,
   micModel: 'umik', calActive: null, layout: null,
@@ -1826,11 +1826,19 @@ function pushBandsRow(dt){
 const bandsKey = () => P.bandsSrc === 'ref' ? 'vr' : P.bandsSrc === 'aux' ? 'va' : 'v';
 const BANDS_SRC_LABEL = { meas: 'mic', ref: 'ref input', aux: 'solo' };
 // A/C weighting per band: the power average of the curve across the band (flat spectrum assumed), applied when drawing
+// N (noise) weighting: the per-band noise profile captured by Set from noise, per input, for the current layout.
+// Each band is offset by (mean noise − its own noise), so the quiet room reads flat at its average level and a
+// band only stands out when it rises above its own noise floor. The overall noise total is unchanged, so the gate still fits.
+const bandNoiseProfile = k => { const N = P.bandNoise; return N && N.key === bandSet().key && N[k] && N[k].length === bandSet().n ? N[k] : null; };
+const bandsWeightOn = () => (P.bandsWeight || 'Z') !== 'N' || !!bandNoiseProfile(bandsKey());
 function bandsWeights(){
-  const B = bandSet(), w = P.bandsWeight || 'Z', key = B.key + '|' + w;
+  const B = bandSet(), w = P.bandsWeight || 'Z', k = bandsKey(), key = B.key + '|' + w + (w === 'N' ? k + (P.bandNoise && P.bandNoise.t) : '');
   if (BANDS.wKey === key) return BANDS.W;
   const W = new Float64Array(B.n);
-  if (w !== 'Z') for (let i = 0; i < B.n; i++){
+  if (w === 'N'){
+    const nz = bandNoiseProfile(k);
+    if (nz){ let e = 0, c = 0; for (const v of nz) if (isFinite(v)){ e += Math.pow(10, v / 10); c++; } const mean = 10 * Math.log10(e / (c || 1)); for (let i = 0; i < B.n; i++) W[i] = isFinite(nz[i]) ? mean - nz[i] : 0; }
+  } else if (w !== 'Z') for (let i = 0; i < B.n; i++){
     let e = 0; const K = 16; for (let j = 0; j < K; j++){ const f = B.lo[i] * Math.pow(B.hi[i] / B.lo[i], (j + 0.5) / K); e += Math.pow(10, (w === 'A' ? DSP.aWeight(f) : DSP.cWeight(f)) / 10); }
     W[i] = 10 * Math.log10(e / K);
   }
@@ -1839,13 +1847,13 @@ function bandsWeights(){
 // the values shown for a history row: chosen input plus weighting, cached on the row
 function bandsVals(row){
   const k = bandsKey(), w = P.bandsWeight || 'Z';
-  if (w === 'Z') return row[k];
-  const ck = '_' + k + w; if (row[ck]) return row[ck];
+  if (w === 'Z' || !bandsWeightOn()) return row[k];
+  const ck = '_' + k + w + (w === 'N' ? P.bandNoise.t : ''); if (row[ck]) return row[ck];
   const W = bandsWeights(), src = row[k], out = new Float32Array(src.length);
   for (let i = 0; i < src.length; i++) out[i] = src[i] + W[i];
   return (row[ck] = out);
 }
-const bandsUnit = () => 'dBFS' + ((P.bandsWeight || 'Z') !== 'Z' ? ' (' + P.bandsWeight + ')' : '');
+const bandsUnit = () => 'dBFS' + ((P.bandsWeight || 'Z') !== 'Z' && bandsWeightOn() ? ' (' + P.bandsWeight + ')' : '');
 const bandIgnoredHz = f => (P.bandIgnoreHz || []).some(x => Math.abs(x / f - 1) < 0.015);
 function toggleBandIgnore(f){
   const list = (P.bandIgnoreHz || []).filter(x => Math.abs(x / f - 1) >= 0.015);
@@ -1856,9 +1864,17 @@ function bandsTotal(v, ign){ let e = 0; for (let i = 0; i < v.length; i++) if (!
 function bandsSetGateFromNoise(){
   const rows = BANDS.rows; if (!rows.length){ toast('Start the analyzer first, with the room quiet.'); return; }
   const B = bandSet(), ign = B.fc.map(bandIgnoredHz), tEnd = rows[rows.length - 1].t; let e = 0, c = 0;
+  // the room is quiet: keep each band's average level over the last 2 s, for every input, as the N weighting profile
+  const prof = { key: B.key, t: Date.now() };
+  for (const k of ['v', 'vr', 'va']){
+    const E = new Float64Array(B.n), cnt = new Float64Array(B.n);
+    for (let r = rows.length - 1; r >= 0 && tEnd - rows[r].t <= 2000; r--){ const v = rows[r][k]; if (v) for (let i = 0; i < B.n; i++) if (isFinite(v[i])){ E[i] += Math.pow(10, v[i] / 10); cnt[i]++; } }
+    if (cnt.some(x => x)) prof[k] = Array.from(E, (x, i) => cnt[i] ? +(10 * Math.log10(x / cnt[i] + 1e-20)).toFixed(2) : null);
+  }
+  P.bandNoise = prof;
   for (let r = rows.length - 1; r >= 0 && tEnd - rows[r].t <= 2000; r--){ const L = bandsTotal(bandsVals(rows[r]), ign); if (isFinite(L)){ e += Math.pow(10, L / 10); c++; } }
   if (!c) return;
-  P.bandGate = Math.round(10 * Math.log10(e / c) + 6); changed(); toast(`Silence gate set to ${P.bandGate} dBFS (6 dB above the current noise)`);
+  P.bandGate = Math.round(10 * Math.log10(e / c) + 6); changed(); toast(`Silence gate set to ${P.bandGate} ${bandsUnit()} (6 dB above the current noise). Noise profile saved for N weighting.`, 3500);
 }
 const lastOpenAt = (rows, ign, gate) => bandsTotal(bandsVals(rows[rows.length - 1]), ign) >= gate;
 function bandsLayout(width){ const n = bandSet().n, rot = (width - 80) / n < 28; return { l: 46, r: 34, t: 8, b: 32 + (rot ? 40 : 20) }; }
@@ -1937,7 +1953,7 @@ function drawBands(F){
   }
   const lvl = last ? bandsTotal(last, ign) : null;
   const soloOff = P.bandsSrc === 'aux' && !S.auxOn ? '  ·  solo channel not connected (Inputs › Other channel is a second input)' : '';
-  return BANDS_SRC_LABEL[P.bandsSrc] + ' · ' + (P.bandsWeight || 'Z') + '-weighted · ' + (BAND_PRESETS[B.id] || {}).name + (lvl != null && isFinite(lvl) ? `  ·  level ${lvl.toFixed(1)} ${bandsUnit()} (gate ${gate})` : '') + soloOff + (hotNow >= 0 && last ? `  ·  hot ${bandLabel(B.fc[hotNow])} Hz` : '');
+  return BANDS_SRC_LABEL[P.bandsSrc] + ' · ' + ((P.bandsWeight || 'Z') === 'N' ? (bandsWeightOn() ? 'noise-weighted (profile ' + new Date(P.bandNoise.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ')' : 'N: no noise profile for this input and layout, press Set from noise') : (P.bandsWeight || 'Z') + '-weighted') + ' · ' + (BAND_PRESETS[B.id] || {}).name + (lvl != null && isFinite(lvl) ? `  ·  level ${lvl.toFixed(1)} ${bandsUnit()} (gate ${gate})` : '') + soloOff + (hotNow >= 0 && last ? `  ·  hot ${bandLabel(B.fc[hotNow])} Hz` : '');
 }
 /* ---------------- Voice view: is this a clean vocal? ---------------- */
 // speech-gated long-term average spectrum in 1/24-octave bands, for both inputs
@@ -2651,7 +2667,7 @@ bind('bandsWeight', 'bandsWeight');
 $('#levSrcBtn').onclick = () => { P.levSrc = P.levSrc === 'ref' ? 'meas' : 'ref'; changed(); };
 // solo is offered while it's connected, or while its recent history is still there to look at
 $('#bandsSrcBtn').onclick = () => { const list = ['meas', 'ref']; if (S.auxOn || BANDS.rows.some(r => r.va && isFinite(r.va[0] + r.va[r.va.length >> 1]))) list.push('aux'); const i = list.indexOf(P.bandsSrc); P.bandsSrc = list[(i + 1) % list.length]; changed(); };
-$('#bandsWeightBtn').onclick = () => { P.bandsWeight = cyc(['Z', 'A', 'C'], P.bandsWeight || 'Z'); changed(); };
+$('#bandsWeightBtn').onclick = () => { P.bandsWeight = cyc(['Z', 'A', 'C', 'N'], P.bandsWeight || 'Z'); changed(); };
 $('#bandGateNoise').onclick = bandsSetGateFromNoise;
 $('#levSet').onclick = levSetFromRecent;
 $('#levClear').onclick = levClearRef;
