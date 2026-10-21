@@ -177,6 +177,21 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
 .vpanel .vp-fix{font-family:var(--mono);font-size:12px;color:var(--fg);margin-top:2px}
 .vpanel .vp-cost{color:var(--dim)}
 .vpanel .vp-d{color:var(--dim);font-size:12px;margin-top:2px}
+.vpanel .vp-t{margin-left:auto;font:400 11px var(--mono);color:var(--faint)}
+.vpanel .vp-ev .vp-t{margin:0}
+.vpanel [data-sel]{cursor:pointer}
+.vpanel .vp-sec{display:flex;justify-content:space-between;margin:12px 0 4px;padding-top:8px;border-top:1px solid var(--line);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+.vpanel .vp-sec span{letter-spacing:0;text-transform:none;font-family:var(--mono)}
+.vpanel .vp-tl{position:relative;height:24px;background:var(--bg);border:1px solid var(--line);border-radius:4px;margin:2px 0 6px}
+.vpanel .vp-tl em{position:absolute;bottom:-1px;font:9px var(--mono);color:var(--faint);font-style:normal;padding:0 3px}
+.vpanel .vp-m{position:absolute;top:3px;width:6px;height:12px;margin-left:-3px;border-radius:2px}
+.vpanel .vp-m.sel{outline:2px solid var(--fg);outline-offset:1px}
+.vpanel .vp-pop{background:var(--clip)} .vpanel .vp-sib{background:var(--live)}
+.vpanel .vp-ev{font-size:12px;padding:3px 4px;border-radius:3px;display:block}
+.vpanel .vp-ev.sel{background:var(--raise)}
+.vpanel .vp-ev .vp-fix{display:block;margin:1px 0 0 14px;font-size:11px}
+.vpanel .vp-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:baseline}
+.vpanel .btn.mini{padding:2px 8px;font-size:11px}
 .vpanel .vp-warn{color:var(--accent);font-size:12px} .vpanel .vp-note{color:var(--dim);font-size:12px} .vpanel .vp-good{color:var(--ok)} .vpanel .vp-wait{color:var(--dim)}
 .pctl .hint{color:var(--faint);font-size:12px}
 .btn.mini{padding:2px 9px;font-size:12px}
@@ -616,7 +631,8 @@ const DSP = (() => {
     sib:    { on: true, lo: 5000, hi: 9000, thr: 5, max: 6, q: 2 },
     res:    { on: true, lo: 150,  hi: 8000, thr: 4, thrLow: 8, max: 10, count: 3 },
     thin:   { on: true, thr: -4 },
-    dull:   { on: true, thr: -8 }
+    dull:   { on: true, thr: -8 },
+    ev:     { popThr: -6, sibThr: -3 }   // momentary events: dB relative to the recent speech level
   };
   function voiceCfg(over){
     const c = JSON.parse(JSON.stringify(VOICE_DEFAULTS));
@@ -702,7 +718,54 @@ const DSP = (() => {
     const cost = base - siiLevel(i => C[i]);
     return { split, D, S3, off, target: fc.map(f => ltass(f) + off), findings: F, cuts, predicted: Array.from(S3, (v, i) => v + C[i]), cost, costWarn: c.costWarn, cfg: c };
   }
-  return { fft, hann, prefix, cum, gccPhat, aWeight, cWeight, interpLog, parseCal, kWeight, voiceAnalyze, filterDb, VOICE_DEFAULTS, voiceCfg };
+  // Momentary vocal events (pops and sibilance) from short frames, for the Voice timeline.
+  // Bands: below 60 Hz (4th-order low-pass, so even a low male fundamental near 90 Hz is 15 dB down), 300 Hz–3 kHz core,
+  // 5–11 kHz sibilance. Levels are sine-referenced dBFS. The core level of recent speech is the yardstick:
+  // a pop is a sudden low-band burst within popThr dB of it; sibilance is the 5–11 kHz band within sibThr dB of it.
+  function voiceEvents(fs, opts = {}){
+    const bq = (type, f, q = Math.SQRT1_2) => {   // RBJ biquad, direct form I
+      const w = 2 * Math.PI * f / fs, c = Math.cos(w), al = Math.sin(w) / (2 * q);
+      let b0, b1, b2; if (type === 'lp'){ b0 = (1 - c) / 2; b1 = 1 - c; b2 = b0; } else { b0 = (1 + c) / 2; b1 = -(1 + c); b2 = b0; }
+      const a0 = 1 + al, B0 = b0 / a0, B1 = b1 / a0, B2 = b2 / a0, A1 = -2 * c / a0, A2 = (1 - al) / a0;
+      let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+      return x => { const y = B0 * x + B1 * x1 + B2 * x2 - A1 * y1 - A2 * y2; x2 = x1; x1 = x; y2 = y1; y1 = y; return y; };
+    };
+    const lo = [bq('lp', 60, 0.541), bq('lp', 60, 1.307)], co = [bq('hp', 300), bq('lp', 3000)], si = [bq('hp', 5000, 0.541), bq('hp', 5000, 1.307), bq('lp', 11000)];
+    const FR = Math.round(fs * 0.02), st = { n: 0, eL: 0, eC: 0, eS: 0, ref: null, speechFrames: 0, cur: {}, last: {}, lastSpeech: -1e9, lowBase: null, t: 0, ev: [] };
+    const dB = e => 10 * Math.log10(2 * e + 1e-20);
+    function frame(tMs, o){
+      const L = dB(st.eL / FR), Cr = dB(st.eC / FR), Sb = dB(st.eS / FR);
+      if (Cr >= o.gate){ st.ref = st.ref == null ? Cr : st.ref + (Cr - st.ref) * Math.max(0.0067, 1 / ++st.speechFrames); st.lastSpeech = tMs; }   // ~3 s of speech
+      const lb = st.lowBase == null ? L : st.lowBase; st.lowBase = lb + (L - lb) * 0.04;   // ~0.5 s
+      const talking = st.speechFrames >= 50 && tMs - st.lastSpeech < 5000;   // after 1 s of speech, and while someone is talking
+      const pop = talking && L - st.ref > o.popThr && L - Cr > -3 && L - lb > 10 ? L - st.ref : null;   // a sudden burst that dominates its own frame
+      const sib = talking && Cr >= o.gate - 10 && Sb - st.ref > o.sibThr ? Sb - st.ref : null;
+      // an event is reported as soon as it starts and is extended while it lasts; a repeat within 250 ms continues it
+      for (const [kind, x] of [['pop', pop], ['sib', sib]]){
+        const c = st.cur[kind];
+        if (x != null){
+          if (c){ c.t1 = tMs; c.peak = Math.max(c.peak, x); c.quiet = 0; continue; }
+          const prev = st.last[kind];
+          if (prev && tMs - prev.t1 < 250){ st.cur[kind] = prev; prev.t1 = tMs; prev.peak = Math.max(prev.peak, x); prev.quiet = 0; continue; }
+          const e = st.cur[kind] = st.last[kind] = { kind, t0: tMs, t1: tMs, peak: x, quiet: 0 }; st.ev.push(e);
+        } else if (c && ++c.quiet > 3) delete st.cur[kind];
+      }
+    }
+    // x: samples, tEnd: time of the last sample in ms; returns the events that started in this block (they keep being extended)
+    return { process(x, tEnd, o){
+      o = Object.assign({ gate: -50, popThr: -6, sibThr: -3 }, opts, o);
+      const n = x.length, start = st.ev.length;
+      for (let i = 0; i < n; i++){
+        const v = x[i];
+        let a = v; for (const f of lo) a = f(a); let b = v; for (const f of co) b = f(b); let c = v; for (const f of si) c = f(c);
+        st.eL += a * a; st.eC += b * b; st.eS += c * c;
+        if (++st.n >= FR){ frame(tEnd - (n - 1 - i) / fs * 1000, o); st.n = 0; st.eL = st.eC = st.eS = 0; }
+      }
+      const out = st.ev.slice(start); if (st.ev.length > 50) st.ev.splice(0, st.ev.length - 50);
+      return out;
+    }, state: st };
+  }
+  return { fft, hann, prefix, cum, gccPhat, aWeight, cWeight, interpLog, parseCal, kWeight, voiceAnalyze, filterDb, VOICE_DEFAULTS, voiceCfg, voiceEvents };
 })();
 if (typeof module !== 'undefined') module.exports = DSP;
 </script>
@@ -1039,6 +1102,7 @@ function onAudio(e){
   }
   S.meter.aux.pk = Math.max(px, S.meter.aux.pk); if (px >= 0.999) S.meter.aux.clip = performance.now();
   levFeed(LEVS.meas, m, n, inv); levFeed(LEVS.ref, r, n, 1);
+  voiceEventsFeed(r, m, x);
   ring.w += n;
   const now = performance.now(), M = S.meter;
   M.ref.pk = Math.max(pr, M.ref.pk); M.meas.pk = Math.max(pm, M.meas.pk);
@@ -2008,7 +2072,7 @@ function pushVoice(dt){
       fr[i] = e; if (f >= 100 && f < 5000) core += e;
     }
     const lvl = 10 * Math.log10(core + 1e-20);
-    V.recent.push(lvl); if (V.recent.length > 30) V.recent.shift();
+    V.recent.push(lvl); if (V.recent.length > 30) V.recent.shift(); V.last = fr;
     V.open = lvl >= +P.voiceGate;
     if (!V.open) continue;   // only speech counts: silence leaves the average alone
     V.count++; V.secs += dt;
@@ -2023,9 +2087,54 @@ function voiceCompute(L){
   L = L || Array.from(V.E, e => 10 * Math.log10(e + 1e-20));
   S.voiceLast = V.count ? DSP.voiceAnalyze(VOICE_FC, L, { hpfOrder: +P.voiceHpf, cfg: P.voiceCfg }) : null;
   S.voiceAnT = performance.now();
+  if (S.voiceLast && V.secs >= VOICE_MIN_SECS) voiceTrack(S.voiceLast);
   return S.voiceLast;
 }
-function voiceReset(){ for (const v of Object.values(VOICE)){ v.E.fill(0); v.secs = 0; v.count = 0; } S.voiceLast = null; S.dirty = true; S.voicePanelT = 0; }
+function voiceReset(){ for (const v of Object.values(VOICE)){ v.E.fill(0); v.secs = 0; v.count = 0; } S.voiceLast = null; S.dirty = true; S.voicePanelT = 0; VH.entries = []; VH.events = []; VH.paused = null; VH.sel = null; S.vdet = null; }
+/* Suggestion history: each finding becomes an entry that appears after 2 s of steady presence and stays listed
+   for VH_DWELL after it was last seen, in the order it first appeared, so the list changes slowly enough to act on
+   while listening. Entries that drop out move to Earlier; momentary events (pops, sibilance) go on a timeline. */
+const VH = { entries: [], events: [], paused: null, sel: null, seq: 0 };
+const VH_DWELL = 10000, VH_SHOW = 2000, VH_SPAN = 60000;
+// one entry per rule; resonances are told apart by their 1/3-octave band
+function voiceKeyOf(x){ const f = x.filter; return x.kind + (x.kind === 'res' && f ? ':' + Math.round(Math.log2(f.f) * 3) : ''); }
+function voiceTrack(R){
+  const now = performance.now();
+  for (const x of R.findings){
+    const key = voiceKeyOf(x); let e = VH.entries.find(v => v.key === key);
+    if (!e){ e = { id: ++VH.seq, key, first: now, last: now, dur: 0, shownAt: null, x }; VH.entries.push(e); }
+    else { if (now - e.last < 1500) e.dur += now - e.last; e.last = now; e.x = x; }
+    if (e.shownAt == null && e.dur >= VH_SHOW) e.shownAt = now;
+  }
+  if (VH.entries.length > 200) VH.entries = VH.entries.filter(e => e.shownAt != null || now - e.last < 5000);
+}
+// momentary events from the input the Voice check listens to
+function voiceEventsFeed(r, m, x){
+  const src = voiceSrc(), arr = src === 'aux' ? x : src === 'ref' ? r : m; if (!arr) return;
+  if (!S.vdet || S.vdet.src !== src || S.vdet.fs !== S.fs) S.vdet = { src, fs: S.fs, det: DSP.voiceEvents(S.fs) };
+  const c = DSP.voiceCfg(P.voiceCfg), off = (c.sens - 1) * 6;   // Gentle needs 3 dB more, Strict 1.5 dB less
+  for (const e of S.vdet.det.process(arr, performance.now(), { gate: +P.voiceGate, popThr: c.ev.popThr + off, sibThr: c.ev.sibThr + off })) voiceEventAdd(e, c);
+  const sib = S.vdet.det.state.cur.sib; if (sib && sib.id) voiceSibFix(sib, c);   // follow a sibilant while it lasts
+}
+function voiceSibFix(e, c){
+  const depth = Math.max(0.1, Math.min(1, +c.depth || 1)), r05 = v => Math.round(v * 2) / 2, V = VOICE[voiceSrc()];
+  let pk = e.fix ? e.fix.f : 7000;
+  if (V.last){ let b = -1; for (let i = 0; i < VOICE_FC.length; i++){ const f = VOICE_FC[i]; if (f < 4500 || f > 11000) continue; if (b < 0 || V.last[i] > V.last[b]) b = i; } if (b >= 0) pk = Math.round(VOICE_FC[b] / 10) * 10; }
+  e.fix = { type: 'bell', f: pk, g: -Math.max(1, r05(Math.min(Math.max(e.peak + 3, 2), c.sib.max) * depth)), q: 3 };
+}
+function voiceEventAdd(e, c){
+  const R = S.voiceLast;
+  e.id = ++VH.seq; e.wall = Date.now() - (performance.now() - e.t0);
+  if (e.kind === 'pop'){
+    const h = R && R.cuts.find(f => f.type === 'hpf');
+    e.fix = { type: 'hpf', f: h ? h.f : 100, order: +P.voiceHpf || 3 };
+    e.title = 'Pop'; e.detail = 'A burst below 60 Hz, typically a P or B hitting the capsule. A high-pass takes the thump out; a pop filter or aiming the mic slightly off the mouth stops it at the source.';
+  } else {
+    voiceSibFix(e, c);
+    e.title = 'Sibilance'; e.detail = 'A sharp S, SH or T. A narrow cut where it peaks softens it; a de-esser at the same frequency only acts while the sound is there, which costs less.';
+  }
+  VH.events.push(e); if (VH.events.length > 400) VH.events.shift();
+}
 function voiceGateFromNoise(){
   const r = VOICE[voiceSrc()].recent; if (!r.length){ toast('Start the analyzer first, with nobody talking.'); return; }
   const e = r.reduce((t, v) => t + Math.pow(10, v / 10), 0) / r.length;
@@ -2059,10 +2168,8 @@ function drawVoice(F){
     series(F, VOICE_FC, Array.from(R.S3), yOf, C.live, 2.2);
     if (ok && R.cuts.length){ g.setLineDash([6, 4]); series(F, VOICE_FC, R.predicted, yOf, C.accent, 1.8); g.setLineDash([]); }
     // numbered markers on the suggestions
-    if (ok){
-      let k = 0;
-      for (const x of R.findings){
-        if (!x.filter) continue; k++;
+    if (ok || VH.entries.length){
+      for (const { num: k, x } of S.voiceShown || []){
         const f = x.filter.f, i = VOICE_FC.reduce((b, v, j) => Math.abs(Math.log(v / f)) < Math.abs(Math.log(VOICE_FC[b] / f)) ? j : b, 0);
         const cx = fx(F, f), cy = Math.max(F.y0 + 22, yOf(R.S3[i]) - 16);
         g.fillStyle = x.sev === 'bad' ? C.clip : C.accent; g.beginPath(); g.arc(cx, cy, 9, 0, Math.PI * 2); g.fill();
@@ -2083,31 +2190,76 @@ function drawVoice(F){
   }
   return VOICE_SRC_LABEL[voiceSrc()] + (P.voiceSrc === 'aux' && voiceSrc() !== 'aux' ? ' (solo channel not on: tick it under Inputs)' : '') + ` · dBFS per 1/3 oct · gate ${P.voiceGate} dBFS`;
 }
+// what the panel shows: live, or frozen at the moment Pause was pressed (analysis keeps running underneath)
+function voiceView(){
+  const P0 = VH.paused, now = P0 ? P0.t : performance.now(), xOf = e => (P0 && P0.snap.get(e.id)) || e.x;
+  const shown = VH.entries.filter(e => e.shownAt != null && e.shownAt <= now);
+  const active = shown.filter(e => now - e.last < VH_DWELL).sort((a, b) => a.shownAt - b.shownAt);
+  const earlier = shown.filter(e => now - e.last >= VH_DWELL).sort((a, b) => b.last - a.last);
+  const events = VH.events.filter(e => e.t0 <= now);
+  let k = 0; const nums = new Map(); for (const e of active) if (xOf(e).filter) nums.set(e.id, ++k);
+  return { now, xOf, active, earlier, events, nums };
+}
+function voicePauseToggle(){
+  if (VH.paused) VH.paused = null;
+  else { const snap = new Map(); for (const e of VH.entries) snap.set(e.id, e.x); VH.paused = { t: performance.now(), snap }; }
+  S.voicePanelT = 0; S.dirty = true;
+}
+const voiceNewCount = () => { const P0 = VH.paused; if (!P0) return 0; return VH.entries.filter(e => e.shownAt != null && e.shownAt > P0.t).length + VH.events.filter(e => e.t0 > P0.t).length; };
+const hms = w => new Date(w).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+const fixText = f => !f ? '' : f.type === 'hpf' ? `High-pass at <b>${f.f} Hz</b>, ${f.order * 6} dB/oct` : `Cut <b>${Math.abs(f.g)} dB</b> at <b>${fmtHz(f.f)}</b>, Q ${f.q}`;
 function voicePanel(R, V, ok){
   const el = $('#voicePanel'); if (!el) return;
   const now = performance.now(); if (now - (S.voicePanelT || 0) < 500) return; S.voicePanelT = now;
-  const esc = t => String(t).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+  const esc = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  const W = voiceView(), wallOf = t => Date.now() - (performance.now() - t), nNew = voiceNewCount();
   let h = '';
-  if (!V.count) h = '<p class="vp-wait">Talk into the mic for a few seconds. Only speech above the gate is collected.</p>';
-  else if (!ok) h = `<p class="vp-wait">Collecting speech… ${V.secs.toFixed(1)} of ${VOICE_MIN_SECS} s</p>`;
+  if (!V.count && !VH.entries.length) h = '<p class="vp-wait">Talk into the mic for a few seconds. Only speech above the gate is collected.</p>';
+  else if (!ok && !VH.entries.length) h = `<p class="vp-wait">Collecting speech… ${V.secs.toFixed(1)} of ${VOICE_MIN_SECS} s</p>`;
   else {
-    const sp = R.split, pct = v => Math.round(v * 100);
-    h += `<div class="vp-split"><span style="flex:${Math.max(sp.sub, .02)};background:var(--clip)"></span><span style="flex:${Math.max(sp.core, .02)};background:var(--ok)"></span><span style="flex:${Math.max(sp.hi, .02)};background:var(--live)"></span></div>`;
-    h += `<div class="vp-split-l"><span>&lt;100 Hz ${pct(sp.sub)}%</span><span>voice ${pct(sp.core)}%</span><span>&gt;5 kHz ${pct(sp.hi)}%</span></div>`;
-    if (!R.findings.length) h += '<p class="vp-good">Looks like a clean, natural voice. Nothing to cut.</p>';
-    let k = 0;
-    for (const x of R.findings){
-      const f = x.filter, num = f ? ++k : '';
-      const what = !f ? '' : f.type === 'hpf' ? `High-pass at <b>${f.f} Hz</b>, ${f.order * 6} dB/oct` : `Cut <b>${Math.abs(f.g)} dB</b> at <b>${fmtHz(f.f)}</b>, Q ${f.q}`;
-      h += `<div class="vp-item vp-${x.sev}"><div class="vp-h">${num ? `<i>${num}</i>` : ''}${esc(x.title)}</div>${what ? `<div class="vp-fix">${what}${f.type !== 'hpf' && x.cost > 0.05 ? ` <span class="vp-cost">costs ${x.cost.toFixed(1)} dB of speech</span>` : ''}</div>` : ''}<div class="vp-d">${esc(x.detail)}</div></div>`;
+    if (R){
+      const sp = R.split, pct = v => Math.round(v * 100);
+      h += `<div class="vp-split"><span style="flex:${Math.max(sp.sub, .02)};background:var(--clip)"></span><span style="flex:${Math.max(sp.core, .02)};background:var(--ok)"></span><span style="flex:${Math.max(sp.hi, .02)};background:var(--live)"></span></div>`;
+      h += `<div class="vp-split-l"><span>&lt;100 Hz ${pct(sp.sub)}%</span><span>voice ${pct(sp.core)}%</span><span>&gt;5 kHz ${pct(sp.hi)}%</span></div>`;
     }
-    if (R.cuts.length) h += R.cost > R.costWarn
-      ? `<p class="vp-warn">Together these cuts take <b>${R.cost.toFixed(1)} dB</b> out of the speech band, so you'd need about that much more gain, which eats feedback margin. Start with the first one or two.</p>`
-      : `<p class="vp-note">Together the cuts cost ${R.cost.toFixed(1)} dB of speech level. The dashed line shows the result.</p>`;
+    // now: steady findings, in the order they appeared
+    if (!W.active.length) h += '<p class="vp-good">' + (VH.entries.length ? 'Nothing needs cutting right now.' : 'Looks like a clean, natural voice. Nothing to cut.') + '</p>';
+    for (const e of W.active){
+      const x = W.xOf(e), f = x.filter, num = W.nums.get(e.id) || '', sel = VH.sel === 'e' + e.id;
+      h += `<div class="vp-item vp-${x.sev}" data-sel="e${e.id}"><div class="vp-h">${num ? `<i>${num}</i>` : ''}${esc(x.title)}<span class="vp-t">${hms(wallOf(e.shownAt))}</span></div>${f ? `<div class="vp-fix">${fixText(f)}${f.type !== 'hpf' && x.cost > 0.05 ? ` <span class="vp-cost">costs ${x.cost.toFixed(1)} dB of speech</span>` : ''}</div>` : ''}${sel || x.sev === 'bad' ? `<div class="vp-d">${esc(x.detail)}</div>` : ''}</div>`;
+    }
+    if (R && R.cuts.length && R.cost > R.costWarn) h += `<p class="vp-warn">Together the current cuts take <b>${R.cost.toFixed(1)} dB</b> out of the speech band, so you'd need about that much more gain, which eats feedback margin. Start with the first one or two.</p>`;
+    // moments: pops and sibilance on a 60 s strip; tap a marker or a line for the fix
+    const t0 = W.now - VH_SPAN, recent = W.events.filter(e => e.t1 >= t0);
+    h += `<div class="vp-sec">Moments, last 60 s <span>${recent.filter(e => e.kind === 'pop').length} pops · ${recent.filter(e => e.kind === 'sib').length} sibilant</span></div><div class="vp-tl">`;
+    for (const e of recent) h += `<span class="vp-m vp-${e.kind}${VH.sel === 'v' + e.id ? ' sel' : ''}" data-sel="v${e.id}" style="left:${Math.max(0, Math.min(100, (e.t0 - t0) / VH_SPAN * 100)).toFixed(2)}%" title="${e.title} ${hms(e.wall)}"></span>`;
+    h += '<em>−60 s</em><em style="right:0">now</em></div>';
+    const list = recent.slice().reverse().slice(0, 12);
+    if (!list.length) h += '<p class="vp-note">No pops or sharp sibilants yet.</p>';
+    for (const e of list){
+      const sel = VH.sel === 'v' + e.id;
+      h += `<div class="vp-ev${sel ? ' sel' : ''}" data-sel="v${e.id}"><span class="vp-dot vp-${e.kind}"></span><span class="vp-t">${hms(e.wall)}</span> ${e.title} <span class="vp-fix">${fixText(e.fix)}</span>${sel ? `<div class="vp-d">${esc(e.detail)}</div>` : ''}</div>`;
+    }
+    // earlier: findings that have dropped out of the live list
+    if (W.earlier.length){
+      h += `<div class="vp-sec">Earlier <span>${W.earlier.length}</span></div>`;
+      for (const e of W.earlier.slice(0, 20)){
+        const x = W.xOf(e), sel = VH.sel === 'e' + e.id;
+        h += `<div class="vp-ev${sel ? ' sel' : ''}" data-sel="e${e.id}"><span class="vp-t">${hms(wallOf(e.shownAt))}–${hms(wallOf(e.last)).slice(-5)}</span> ${esc(x.title)} ${x.filter ? `<span class="vp-fix">${fixText(x.filter)}</span>` : ''}${sel ? `<div class="vp-d">${esc(x.detail)}</div>` : ''}</div>`;
+      }
+    }
   }
-  el.innerHTML = `<div class="vp-top"><b>Vocal check</b><button class="x" id="vpHide" aria-label="Hide">–</button></div>` + h;
-  $('#vpHide').onclick = () => { P.voicePanel = false; changed(); };
+  const pb = VH.paused ? `<button class="btn mini on" data-act="pause">Paused${nNew ? ` · ${nNew} new` : ''} ▸</button>` : '<button class="btn mini" data-act="pause" title="Freeze this list; analysis keeps running">Pause</button>';
+  el.innerHTML = `<div class="vp-top"><b>Vocal check</b><span class="pctl">${pb}<button class="x" data-act="hide" aria-label="Hide">–</button></span></div>` + h;
+  S.voiceShown = W.active.filter(e => W.nums.get(e.id)).map(e => ({ num: W.nums.get(e.id), x: W.xOf(e) }));
 }
+// taps on the panel: pointerdown, because the panel is redrawn twice a second and a click can land on a replaced node
+$('#voicePanel').addEventListener('pointerdown', e => {
+  const act = e.target.closest('[data-act]');
+  if (act){ e.preventDefault(); if (act.dataset.act === 'pause') voicePauseToggle(); else { P.voicePanel = false; changed(); } return; }
+  const it = e.target.closest('[data-sel]'); if (!it) return;
+  VH.sel = VH.sel === it.dataset.sel ? null : it.dataset.sel; S.voicePanelT = 0; S.dirty = true;
+});
 
 function cycleBandPreset(){
   const ids = Object.keys(BAND_PRESETS).filter(id => id !== 'custom' || parseBandList(P.bandCustom).length >= 2);
@@ -2352,8 +2504,8 @@ function bandsLeader(){
   return { lead, fc: lead >= 0 ? B.fc[lead] : null, fr: total ? counts[lead] / total : 0, total, open: lvl >= gate, lvl };
 }
 function voiceCutKey(n){
-  const R = S.voiceLast, cuts = R ? R.findings.filter(x => x.filter) : [], x = cuts[n];
-  if (!x) return { top: 'CUT ' + (n + 1), main: '—', sub: R ? 'none' : 'no result', bg: '#151a21', fg: C.faint, fg2: C.faint };
+  const shown = S.voiceShown || [], it = shown[n], x = it && it.x;   // same numbering as the Voice list
+  if (!x) return { top: 'CUT ' + (n + 1), main: '—', sub: S.voiceLast ? 'none' : 'no result', bg: '#151a21', fg: C.faint, fg2: C.faint };
   const f = x.filter, fq = f.f >= 1000 ? (+(f.f / 1000).toFixed(2)) + 'k' : String(f.f);
   return { top: 'CUT ' + (n + 1), main: f.type === 'hpf' ? 'HPF' : fq, sub: f.type === 'hpf' ? fq + ' Hz' : f.g + ' dB Q' + f.q, bg: x.sev === 'bad' ? '#7a1a12' : x.sev === 'warn' ? '#6b4a12' : '#1f3b52', fg: C.fg, fg2: '#d9cbb0' };
 }
@@ -2445,6 +2597,7 @@ const ACT = {
   voiceSens: { name: 'Voice sensitivity', group: 'Voice', k: () => { const s = DSP.voiceCfg(P.voiceCfg).sens; return onKey('SENSITIVITY', ({ 1.5: 'GENTLE', 1.25: 'RELAXED', 1: 'NORMAL', 0.75: 'STRICT' })[s] || 'x' + s, 'voice'); }, press: () => voiceCfgSet('sens', +cyc([1.5, 1.25, 1, 0.75], DSP.voiceCfg(P.voiceCfg).sens)) },
   voiceDepth: { name: 'Voice cut depth', group: 'Voice', k: () => onKey('CUT DEPTH', Math.round(DSP.voiceCfg(P.voiceCfg).depth * 100) + '%', 'voice'), press: () => voiceCfgSet('depth', +cyc([1, 0.75, 0.5, 0.25], DSP.voiceCfg(P.voiceCfg).depth)) },
   voiceGate: { name: 'Voice gate from noise', group: 'Voice', k: () => onKey('SPEECH GATE', 'NOISE', P.voiceGate + ' dB'), press: voiceGateFromNoise },
+  voicePause: { name: 'Pause/resume the Voice list', group: 'Voice', k: () => { const n = voiceNewCount(); return { ...onKey('VOICE LIST', VH.paused ? 'PAUSED' : 'LIVE', VH.paused ? (n ? n + ' new' : 'tap: resume') : 'tap: pause', !!VH.paused) }; }, press: voicePauseToggle },
   voiceTau: { name: 'Voice average window', group: 'Voice', k: () => onKey('AVERAGE', +P.voiceTau ? P.voiceTau + ' s' : 'ALL', 'speech'), press: () => { P.voiceTau = +cyc([10, 30, 0], P.voiceTau); changed(); } },
   // traces
   capture: { name: 'Capture trace', group: 'Traces', k: () => ({ top: 'TRACE', main: 'CAPTURE', sub: TRACES.length + ' stored', bg: '#1f3b52', fg: C.fg, fg2: '#9cc9ee' }), press: capture },
@@ -2489,7 +2642,7 @@ const DECK_DEFAULTS = {
           null, 'bandsFloorDn', 'bandsFloorUp', 'bandsCeilDn', 'bandsCeilUp', null, 'meterSolo', 'deck',
           null, 'genDn', 'genUp', null, null, 'leq', 'meterMeas', 'meterRef'],
   voice: [null, 'newTalker', 'voice', 'cut1', 'cut2', 'cut3', 'voiceSrc', 'meterSolo',
-          null, 'voiceSens', 'voiceDepth', 'voiceGate', 'voiceTau', null, null, null,
+          null, 'voicePause', 'voiceSens', 'voiceDepth', 'voiceGate', 'voiceTau', null, null,
           null, null, null, null, null, null, null, 'deck',
           null, null, null, null, null, 'leq', 'meterMeas', 'meterRef']
 };
@@ -2817,7 +2970,9 @@ const VOICE_GLOBALS = [
   ['voiceLo', 'Voice zone starts at', 'Hz; rumble is below it'],
   ['voiceHi', 'Voice zone ends at', 'Hz'],
   ['hfDom', 'Flag energy above the zone when within', 'dB of the zone'],
-  ['costWarn', 'Warn when cuts cost more than', 'dB of speech']
+  ['costWarn', 'Warn when cuts cost more than', 'dB of speech'],
+  ['ev.popThr', 'Mark a pop when its burst below 60 Hz is within', 'dB of the speech level'],
+  ['ev.sibThr', 'Mark sibilance when 5–11 kHz is within', 'dB of the speech level']
 ];
 function voiceCfgGet(path){ const c = DSP.voiceCfg(P.voiceCfg), [a, b] = path.split('.'); return b ? c[a][b] : c[a]; }
 function voiceCfgSet(path, v){
