@@ -196,6 +196,12 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
 .vpanel .vp-ev .vp-fix{display:block;margin:1px 0 0 14px;font-size:11px}
 .vpanel .vp-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:baseline}
 .vpanel .btn.mini{padding:2px 8px;font-size:11px}
+.vpanel .vp-tr{max-height:150px;overflow:auto;background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:6px 8px;font-size:13px;line-height:1.6}
+.vpanel .vp-tr .w-pop,.vpanel .vp-tr .w-sib{border-radius:3px;padding:0 2px;cursor:pointer;color:#111}
+.vpanel .vp-tr .w-pop{background:var(--clip)} .vpanel .vp-tr .w-sib{background:var(--live)}
+.vpanel .vp-tr .sel{outline:2px solid var(--fg)}
+.vpanel .vp-tr .gap{color:var(--faint)}
+.vpanel .vp-trsel{font-size:12px;margin-top:4px;padding:4px 6px;background:var(--raise);border-radius:3px}
 .vpanel .vp-warn{color:var(--accent);font-size:12px} .vpanel .vp-note{color:var(--dim);font-size:12px} .vpanel .vp-good{color:var(--ok)} .vpanel .vp-wait{color:var(--dim)}
 .pctl .hint{color:var(--faint);font-size:12px}
 .btn.mini{padding:2px 9px;font-size:12px}
@@ -302,6 +308,9 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
           <div class="row"><label for="voiceSens">Sensitivity</label><select id="voiceSens"><option value="1.5">Gentle (fewer suggestions)</option><option value="1.25">Relaxed</option><option value="1">Normal</option><option value="0.75">Strict (more suggestions)</option></select></div>
           <div class="row"><label for="voiceDepth">Cut depth</label><select id="voiceDepth"><option value="1">Full</option><option value="0.75">75 %</option><option value="0.5">Half</option><option value="0.25">Quarter</option></select></div>
           <details class="vrules"><summary>Rules</summary><div id="voiceRules"></div></details>
+          <div class="row"><label for="trModel">Transcript</label><select id="trModel"><option value="tiny">Small model (about 120 MB)</option><option value="base">Larger model (about 210 MB)</option></select></div>
+          <div class="btns"><button class="btn" id="trBtn">Download and start transcript…</button></div>
+          <p class="note" id="trNote">Experimental. Writes down what the talker says and highlights the words where a pop or sibilant was marked, so you can tap the word you heard and get the fix. The speech model is downloaded once and kept by the browser.</p>
           <p class="note">Checks a vocal against the shape of natural speech and suggests cuts for the channel strip: a high-pass for pops and rumble, low-mid cuts for proximity, notches for resonances, and gentle cuts for nasal, harsh or sibilant tones. It only listens while someone is speaking above the gate. Suggestions are cuts only, and it warns when they would cost enough speech level that you'd need more gain.</p>
         </div>
       </details>
@@ -793,7 +802,7 @@ const DEFAULTS = {
   genOn: false, genType: 'pink', genFreq: 1000, genLevel: -20,
   delayMs: 0,
   fftMode: 'mtw', avg: 8, smooth: 24, cohBlank: 0.5, cohView: 'lane', sideHidden: false, magRange: 20, magOffset: 0,
-  topView: 'rta', levMetric: 'lufs', levSpan: 1, levRange: 24, levRefWin: 10, levRef: {}, levSrc: 'meas', bandsSrc: 'meas', bandsWeight: 'Z', bandNoise: null, bandsFloor: -90, bandsCeil: -30, bandIgnore: [], bandIgnoreHz: null, bandPreset: 'iso31', bandCustom: '', bandTallySec: 10, bandGate: -60, thru: false, thruLevel: 0, refAux: false, monMode: 'off', monLevel: -20, voiceSrc: 'ref', voiceTau: 30, voiceGate: -50, voiceHpf: 3, voiceCfg: {}, voicePanel: true, monOut: '', rtaBands: '3', rtaAvg: 'fast', rtaUnits: 'dbfs', rtaTop: 0, rtaSpan: 100, peakHold: true,
+  topView: 'rta', levMetric: 'lufs', levSpan: 1, levRange: 24, levRefWin: 10, levRef: {}, levSrc: 'meas', bandsSrc: 'meas', bandsWeight: 'Z', bandNoise: null, bandsFloor: -90, bandsCeil: -30, bandIgnore: [], bandIgnoreHz: null, bandPreset: 'iso31', bandCustom: '', bandTallySec: 10, bandGate: -60, thru: false, thruLevel: 0, refAux: false, monMode: 'off', monLevel: -20, voiceSrc: 'ref', voiceTau: 30, voiceGate: -50, voiceHpf: 3, voiceCfg: {}, trOn: false, trModel: 'tiny', trReady: '', voicePanel: true, monOut: '', rtaBands: '3', rtaAvg: 'fast', rtaUnits: 'dbfs', rtaTop: 0, rtaSpan: 100, peakHold: true,
   specFloor: -110, specCeil: -40,
   serial: '', calAngle: '0', applyCal: true, splOffset: null, weight: 'A', timeW: 'fast', calRef: 94,
   micModel: 'umik', calActive: null, layout: null,
@@ -2107,7 +2116,7 @@ function voiceCompute(L){
   if (S.voiceLast && V.secs >= VOICE_MIN_SECS) voiceTrack(S.voiceLast);
   return S.voiceLast;
 }
-function voiceReset(){ for (const v of Object.values(VOICE)){ v.E.fill(0); v.secs = 0; v.count = 0; } S.voiceLast = null; S.dirty = true; S.voicePanelT = 0; VH.entries = []; VH.events = []; VH.paused = null; VH.sel = null; S.vdet = null; }
+function voiceReset(){ for (const v of Object.values(VOICE)){ v.E.fill(0); v.secs = 0; v.count = 0; } S.voiceLast = null; S.dirty = true; S.voicePanelT = 0; VH.entries = []; VH.events = []; VH.paused = null; VH.sel = null; S.vdet = null; if (typeof TR !== 'undefined'){ TR.words = []; TR.skipped = 0; } }
 /* Suggestion history: each finding becomes an entry that appears after 2 s of steady presence and stays listed
    for VH_DWELL after it was last seen, in the order it first appeared, so the list changes slowly enough to act on
    while listening. Entries that drop out move to Earlier; momentary events (pops, sibilance) go on a timeline. */
@@ -2132,6 +2141,115 @@ function voiceEventsFeed(r, m, x){
   const c = DSP.voiceCfg(P.voiceCfg), off = (c.sens - 1) * 6;   // Gentle needs 3 dB more, Strict 1.5 dB less
   for (const e of S.vdet.det.process(arr, performance.now(), { gate: +P.voiceGate, popThr: c.ev.popThr + off, sibThr: c.ev.sibThr + off })) voiceEventAdd(e, c);
   const sib = S.vdet.det.state.cur.sib; if (sib && sib.id) voiceSibFix(sib, c);   // follow a sibilant while it lasts
+  if (P.trOn && TR.state === 'ready') trFeed(arr, src);
+}
+/* ---------------- Transcript (experimental): Whisper in a worker, on WebGPU when available ----------------
+   The Voice input is resampled to 16 kHz and cut into chunks at pauses (4–12 s). Each chunk is transcribed with
+   word timestamps, and the words are placed on the same clock as the pop and sibilance events. Nothing leaves
+   the device and nothing is saved: the words live in memory until New talker or a reload. */
+const TR_LIB = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1';
+const TR_MODELS = { tiny: 'onnx-community/whisper-tiny.en_timestamped', base: 'onnx-community/whisper-base.en_timestamped' };
+const TR_WORKER_SRC = `
+import { pipeline, env } from '${TR_LIB}';
+env.allowLocalModels = false;
+let asr = null;
+self.onmessage = async e => {
+  const m = e.data;
+  try {
+    if (m.type === 'load'){
+      asr = await pipeline('automatic-speech-recognition', m.model, { device: m.device, dtype: m.dtype,
+        progress_callback: p => self.postMessage({ type: 'progress', file: p.file || '', status: p.status, loaded: p.loaded || 0, total: p.total || 0 }) });
+      await asr(new Float32Array(16000), { return_timestamps: 'word' });   // warm up the GPU pipeline
+      self.postMessage({ type: 'ready' });
+    } else if (m.type === 'run'){
+      const out = await asr(m.audio, { return_timestamps: 'word' });
+      self.postMessage({ type: 'result', id: m.id, chunks: (out.chunks || []).map(c => ({ text: c.text, ts: c.timestamp })) });
+    }
+  } catch (err){ self.postMessage({ type: 'error', id: m.id, stage: m.type, message: String(err && err.message || err) }); }
+};`;
+const TR = { state: 'off', worker: null, files: {}, msg: '', device: '', rs: null, cur: [], curLen: 0, t0: 0, speech: 0, quiet: 0, fr: { e: 0, n: 0 }, queue: [], busy: false, words: [], seq: 0, skipped: 0 };
+async function trStart(){
+  if (TR.state === 'loading' || TR.state === 'ready') return;
+  let device = 'wasm';
+  try { if (navigator.gpu && await navigator.gpu.requestAdapter()) device = 'webgpu'; } catch {}
+  TR.device = device; TR.state = 'loading'; TR.files = {}; TR.msg = 'starting'; syncUI();
+  try {
+    const url = URL.createObjectURL(new Blob([TR_WORKER_SRC], { type: 'text/javascript' }));
+    TR.worker = new Worker(url, { type: 'module' });
+  } catch (e){ TR.state = 'error'; TR.msg = 'could not start the worker: ' + e.message; syncUI(); return; }
+  TR.worker.onmessage = trOnMessage;
+  TR.worker.onerror = e => { TR.state = 'error'; TR.msg = (e.message || 'the speech model could not load') + (navigator.onLine ? '' : ' (offline?)'); syncUI(); };
+  const dtype = device === 'webgpu' ? { encoder_model: 'fp32', decoder_model_merged: 'q4' } : { encoder_model: 'fp32', decoder_model_merged: 'q8' };
+  TR.worker.postMessage({ type: 'load', model: TR_MODELS[P.trModel] || TR_MODELS.tiny, device, dtype });
+}
+function trStop(){ if (TR.worker) TR.worker.terminate(); TR.worker = null; TR.state = 'off'; TR.queue = []; TR.busy = false; TR.cur = []; TR.curLen = 0; syncUI(); }
+function trOnMessage(e){
+  const m = e.data;
+  if (m.type === 'progress'){ if (m.file) TR.files[m.file] = { loaded: m.loaded, total: m.total }; const f = Object.values(TR.files), tot = f.reduce((t, x) => t + x.total, 0), got = f.reduce((t, x) => t + x.loaded, 0); TR.msg = tot ? `downloading ${Math.round(got / 1e6)} of ${Math.round(tot / 1e6)} MB` : 'loading'; trNote(); }
+  else if (m.type === 'ready'){ TR.state = 'ready'; TR.msg = ''; P.trReady = P.trModel; save(); syncUI(); toast('Transcript ready' + (TR.device === 'webgpu' ? '' : ' (no WebGPU here, so it runs on the CPU and may fall behind)'), 4000); }
+  else if (m.type === 'result'){
+    const job = TR.job; TR.busy = false; TR.job = null;
+    if (job) for (const c of m.chunks){
+      const a = c.ts && c.ts[0] != null ? c.ts[0] : 0, b = c.ts && c.ts[1] != null ? c.ts[1] : a + 0.3, text = (c.text || '').trim();
+      if (!text || /^[\[(]/.test(text)) continue;   // [BLANK_AUDIO], (music) and the like
+      TR.words.push({ text, t0: job.t0 + a * 1000, t1: job.t0 + b * 1000 });
+    }
+    if (TR.words.length > 3000) TR.words.splice(0, TR.words.length - 3000);
+    S.voicePanelT = 0; trNext();
+  } else if (m.type === 'error'){
+    if (m.stage === 'run'){ TR.busy = false; TR.job = null; TR.msg = 'a chunk failed: ' + m.message; trNext(); }
+    else { TR.state = 'error'; TR.msg = m.message; syncUI(); }
+  }
+}
+// 16 kHz mono, low-passed first; chunks end at a pause after 4 s, or at 12 s
+function trFeed(x, src){
+  const fs = S.fs;
+  if (!TR.rs || TR.rs.fs !== fs || TR.rs.src !== src){
+    const bq = (f, q) => { const w = 2 * Math.PI * f / fs, c = Math.cos(w), al = Math.sin(w) / (2 * q), a0 = 1 + al, B0 = (1 - c) / 2 / a0, B1 = (1 - c) / a0, A1 = -2 * c / a0, A2 = (1 - al) / a0; let x1 = 0, x2 = 0, y1 = 0, y2 = 0; return v => { const y = B0 * v + B1 * x1 + B0 * x2 - A1 * y1 - A2 * y2; x2 = x1; x1 = v; y2 = y1; y1 = y; return y; }; };
+    TR.rs = { fs, src, f: [bq(7000, 0.541), bq(7000, 1.307)], step: fs / 16000, pos: 0, prev: 0 };
+    TR.cur = []; TR.curLen = 0;
+  }
+  const R = TR.rs, out = []; let prev = R.prev;
+  for (let i = 0; i < x.length; i++){
+    let v = x[i]; for (const f of R.f) v = f(v);
+    while (R.pos < 1){ out.push(prev + (v - prev) * R.pos); R.pos += R.step; }
+    R.pos -= 1; prev = v;
+  }
+  R.prev = prev;
+  if (!out.length) return;
+  if (!TR.curLen) TR.t0 = performance.now() - out.length / 16;   // ms: time of the chunk's first sample
+  const buf = Float32Array.from(out); TR.cur.push(buf); TR.curLen += buf.length;
+  for (const v of buf){ TR.fr.e += v * v; if (++TR.fr.n === 320){ const db = 10 * Math.log10(2 * TR.fr.e / 320 + 1e-20); if (db >= +P.voiceGate){ TR.speech += 20; TR.quiet = 0; } else TR.quiet += 20; TR.fr.e = 0; TR.fr.n = 0; } }
+  const secs = TR.curLen / 16000;
+  if (!TR.speech && secs > 1.5){ trCut(false); return; }   // nothing said yet: don't pile up silence
+  if ((secs >= 4 && TR.quiet >= 300) || secs >= 12) trCut(TR.speech >= 600);
+}
+function trCut(keep){
+  if (keep){
+    const a = new Float32Array(TR.curLen); let o = 0; for (const b of TR.cur){ a.set(b, o); o += b.length; }
+    TR.queue.push({ id: ++TR.seq, audio: a, t0: TR.t0 });
+    while (TR.queue.length > 2){ const d = TR.queue.shift(); TR.skipped += d.audio.length / 16000; TR.words.push({ gap: true, text: '…', t0: d.t0, t1: d.t0 + d.audio.length / 16 }); }
+    trNext();
+  }
+  TR.cur = []; TR.curLen = 0; TR.speech = 0; TR.quiet = 0;
+}
+function trNext(){
+  if (TR.busy || !TR.queue.length || TR.state !== 'ready') return;
+  const job = TR.job = TR.queue.shift(); TR.busy = true;
+  TR.worker.postMessage({ type: 'run', id: job.id, audio: job.audio }, [job.audio.buffer]);
+}
+function trNote(){
+  const el = $('#trNote'); if (!el) return;
+  const base = 'Experimental. Writes down what the talker says and highlights the words where a pop or sibilant was marked, so you can tap the word you heard and get the fix. The speech model is downloaded once and kept by the browser.';
+  el.textContent = TR.state === 'loading' ? 'Loading the speech model: ' + TR.msg + '…' : TR.state === 'error' ? 'Transcript failed: ' + TR.msg : TR.state === 'ready' && P.trOn ? `Transcribing on ${TR.device === 'webgpu' ? 'the GPU (WebGPU)' : 'the CPU'}. Words stay in memory only and are cleared by New talker.` : base;
+}
+function trButton(){
+  if (P.trOn){ P.trOn = false; trStop(); changed(); return; }
+  if (P.trReady !== P.trModel){
+    const mb = P.trModel === 'base' ? 210 : 120;
+    if (!confirm(`Download the speech model?\n\nThis fetches about ${mb} MB once, from jsDelivr and Hugging Face. Use Wi-Fi rather than mobile data. The browser keeps it, so later starts work offline.\n\nThe speech is transcribed on this device (on the GPU where the browser supports WebGPU). Nothing is sent anywhere, and the words are not saved.`)) return;
+  }
+  P.trOn = true; changed(); trStart();
 }
 function voiceSibFix(e, c){
   const depth = Math.max(0.1, Math.min(1, +c.depth || 1)), r05 = v => Math.round(v * 2) / 2, V = VOICE[voiceSrc()];
@@ -2246,6 +2364,9 @@ function voicePanel(R, V, ok){
       h += `<div class="vp-item vp-${x.sev}" data-sel="e${e.id}"><div class="vp-h">${num ? `<i>${num}</i>` : ''}${esc(x.title)}<span class="vp-t">${hms(wallOf(e.shownAt))}</span></div>${f ? `<div class="vp-fix">${fixText(f)}${f.type !== 'hpf' && x.cost > 0.05 ? ` <span class="vp-cost">costs ${x.cost.toFixed(1)} dB of speech</span>` : ''}</div>` : ''}${sel || x.sev === 'bad' ? `<div class="vp-d">${esc(x.detail)}</div>` : ''}</div>`;
     }
     if (R && R.cuts.length && R.cost > R.costWarn) h += `<p class="vp-warn">Together the current cuts take <b>${R.cost.toFixed(1)} dB</b> out of the speech band, so you'd need about that much more gain, which eats feedback margin. Start with the first one or two.</p>`;
+  }
+  // moments, transcript and earlier show as soon as there is anything, even before the average is ready
+  if (V.count || VH.entries.length || VH.events.length || P.trOn){
     // moments: pops and sibilance on a 60 s strip; tap a marker or a line for the fix
     const t0 = W.now - VH_SPAN, recent = W.events.filter(e => e.t1 >= t0);
     h += `<div class="vp-sec">Moments, last 60 s <span>${recent.filter(e => e.kind === 'pop').length} pops · ${recent.filter(e => e.kind === 'sib').length} sibilant</span></div><div class="vp-tl">`;
@@ -2257,6 +2378,22 @@ function voicePanel(R, V, ok){
       const sel = VH.sel === 'v' + e.id;
       h += `<div class="vp-ev${sel ? ' sel' : ''}" data-sel="v${e.id}"><span class="vp-dot vp-${e.kind}"></span><span class="vp-t">${hms(e.wall)}</span> ${e.title} <span class="vp-fix">${fixText(e.fix)}</span>${sel ? `<div class="vp-d">${esc(e.detail)}</div>` : ''}</div>`;
     }
+    // transcript: words where a pop or sibilant was marked are highlighted; tap one for its fix
+    if (P.trOn){
+      const st = TR.state === 'ready' ? (TR.busy || TR.queue.length ? 'transcribing…' : 'listening') : TR.state === 'loading' ? TR.msg + '…' : TR.state === 'error' ? 'failed' : 'off';
+      h += `<div class="vp-sec">Transcript <span>${esc(st)}</span></div><div class="vp-tr" id="vpTr">`;
+      const words = TR.words.filter(w => w.t0 <= W.now && w.t1 >= W.now - 180000);
+      if (!words.length) h += `<span class="gap">${TR.state === 'ready' ? 'Words appear a few seconds after they are spoken.' : TR.state === 'error' ? esc(TR.msg) : 'Loading the speech model…'}</span>`;
+      let selEv = null;
+      for (const w of words){
+        if (w.gap){ h += '<span class="gap"> … </span>'; continue; }
+        const ev = W.events.find(e => e.t0 <= w.t1 + 80 && e.t1 >= w.t0 - 80);
+        if (ev && VH.sel === 'v' + ev.id) selEv = ev;
+        h += ev ? `<span class="w-${ev.kind}${VH.sel === 'v' + ev.id ? ' sel' : ''}" data-sel="v${ev.id}">${esc(w.text)}</span> ` : esc(w.text) + ' ';
+      }
+      h += '</div>';
+      if (selEv) h += `<div class="vp-trsel"><span class="vp-dot vp-${selEv.kind}"></span>${selEv.title} at ${hms(selEv.wall)}: <span class="vp-fix">${fixText(selEv.fix)}</span></div>`;
+    }
     // earlier: findings that have dropped out of the live list
     if (W.earlier.length){
       h += `<div class="vp-sec">Earlier <span>${W.earlier.length}</span></div>`;
@@ -2267,8 +2404,11 @@ function voicePanel(R, V, ok){
     }
   }
   const pb = VH.paused ? `<button class="btn mini on" data-act="pause">Paused${nNew ? ` · ${nNew} new` : ''} ▸</button>` : '<button class="btn mini" data-act="pause" title="Freeze this list; analysis keeps running">Pause</button>';
+  const trOld = $('#vpTr'), trStick = !trOld || trOld.scrollTop + trOld.clientHeight >= trOld.scrollHeight - 8, trTop = trOld ? trOld.scrollTop : 0, panTop = el.scrollTop;
   el.innerHTML = `<div class="vp-top"><b>Vocal check</b><span class="pctl">${pb}<button class="x" data-act="hide" aria-label="Hide">–</button></span></div>` + h;
   S.voiceShown = W.active.filter(e => W.nums.get(e.id)).map(e => ({ num: W.nums.get(e.id), x: W.xOf(e) }));
+  const trNew = $('#vpTr'); if (trNew) trNew.scrollTop = trStick ? trNew.scrollHeight : trTop;
+  el.scrollTop = panTop;
 }
 // taps on the panel: pointerdown, because the panel is redrawn twice a second and a click can land on a replaced node
 $('#voicePanel').addEventListener('pointerdown', e => {
@@ -2896,7 +3036,9 @@ function syncUI(){
   $('#voicePanel').hidden = P.topView !== 'voice' || !P.voicePanel; $('#voicePanelBtn').classList.toggle('on', !!P.voicePanel);
   $('#voiceSrcBtn').textContent = ({ aux: 'Solo', ref: 'Ref in', meas: 'Mic in' })[voiceSrc()] + ' ▸';
   $('#mtAux').hidden = !S.auxOn; $('#refAuxRow').hidden = P.refDev === 'gen';
-  ['voiceSrc', 'voiceTau', 'voiceGate', 'voiceHpf'].forEach(k => set(k, P[k]));
+  ['voiceSrc', 'voiceTau', 'voiceGate', 'voiceHpf', 'trModel'].forEach(k => set(k, P[k]));
+  $('#trBtn').textContent = P.trOn ? (TR.state === 'loading' ? 'Loading… (press to cancel)' : 'Stop transcript') : P.trReady === P.trModel ? 'Start transcript' : 'Download and start transcript…';
+  $('#trBtn').classList.toggle('on', !!P.trOn); trNote();
   { const c = DSP.voiceCfg(P.voiceCfg); $('#voiceSens').value = String(c.sens); $('#voiceDepth').value = String(c.depth); voiceRulesSync(); }
   S.voicePanelT = 0;
   $('#levMetricBtn').textContent = levShort() + ' ▸';
@@ -2972,6 +3114,9 @@ bind('bandGate', 'bandGate', { num: true });
 bind('levSrc', 'levSrc');
 bind('voiceSrc', 'voiceSrc'); bind('voiceTau', 'voiceTau', { num: true }); bind('voiceGate', 'voiceGate', { num: true }); bind('voiceHpf', 'voiceHpf', { num: true });
 $('#voiceGateNoise').onclick = voiceGateFromNoise;
+$('#trBtn').onclick = trButton;
+bind('trModel', 'trModel', { after: () => { if (P.trOn){ P.trOn = false; trStop(); save(); toast('Model changed. Press the transcript button to load it.'); } } });
+if (P.trOn){ if (P.trReady === P.trModel) setTimeout(trStart, 1500); else { P.trOn = false; save(); } }   // already downloaded: start again quietly
 // Voice rules: every threshold and range the vocal check uses, stored as overrides of DSP.VOICE_DEFAULTS in P.voiceCfg
 const VOICE_RULES = [
   ['sub',    'Pops / rumble', { thr: 1 }],
