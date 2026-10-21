@@ -135,6 +135,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .tabs{display:flex;gap:2px;flex-wrap:wrap}
 .tabs button{background:none;border:0;border-bottom:2px solid transparent;padding:3px 8px;cursor:pointer;color:var(--dim);font-weight:600;letter-spacing:.08em;text-transform:uppercase;font-size:12px}
 .tabs button.on{color:var(--fg);border-color:var(--accent)}
+.tabs button.away{opacity:.35;cursor:default}
 .phead .ro{margin-left:auto;font:12px var(--mono);color:var(--fg);font-variant-numeric:tabular-nums}
 .legend{display:flex;gap:10px;font-size:12px}
 .legend span::before{content:"";display:inline-block;width:12px;height:2px;margin-right:5px;vertical-align:middle;background:currentColor}
@@ -231,6 +232,7 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
 #deckEd .pick{display:grid;grid-template-columns:auto 1fr;gap:8px;align-items:center}
 #scrim{position:fixed;inset:0;background:rgba(5,8,11,.6);z-index:14}
 @media (max-width:900px){
+  #dispBtn{display:none}
   .app{height:100dvh}
   .shell{grid-template-columns:1fr}
   .side{position:fixed;z-index:15;top:0;bottom:0;left:0;width:min(340px,88vw);transform:translateX(-102%);transition:transform .2s ease;padding-top:env(safe-area-inset-top,0px);padding-left:env(safe-area-inset-left,0px);box-shadow:8px 0 24px rgba(0,0,0,.45)}
@@ -264,6 +266,7 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
     <button class="chipbtn" id="layoutBtn" title="L">RTA ONLY</button>
     <button class="chipbtn" id="topGen" title="G">GEN OFF</button>
     <button class="chipbtn" id="topDeck">DECK –</button>
+    <button class="chipbtn" id="dispBtn" title="Open a second window for an external monitor">2ND</button>
     <button class="chipbtn" id="fsBtn" title="Full screen (F)" aria-label="Full screen">⛶</button>
     <a class="chipbtn" href="guide.html" target="_blank" rel="noopener" title="User guide" aria-label="User guide" style="text-decoration:none">?</a>
     <div class="spl" title="Sound level">
@@ -479,7 +482,7 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
           <div class="row"><label for="deckBright">Brightness</label><input type="range" id="deckBright" min="5" max="100" step="5"></div>
           <label class="check"><input type="checkbox" id="showConsole">Show on-screen console</label>
           <div class="btns"><button class="btn" id="btnDeckEd">Edit key layout…</button></div>
-          <p class="note">The keys follow the screen: one page for all panes (transfer function work) and one for each view on its own. The left column is the same on every page.</p>
+          <p class="note">The top row is the same on every page: the six views, All panes, and the screen key, which moves the deck between the main window and the second screen. The keys below follow the view on that screen.</p>
           <p class="note">Uses WebHID, so Chrome or Edge only. Quit the Elgato Stream Deck app first or it may hold the device. Supports XL (both versions), MK.2 and Original V2.</p>
         </div>
       </details>
@@ -951,7 +954,7 @@ const DEFAULTS = {
   genOn: false, genType: 'pink', genFreq: 1000, genLevel: -20,
   delayMs: 0,
   fftMode: 'mtw', avg: 8, smooth: 24, cohBlank: 0.5, cohView: 'lane', sideHidden: false, magRange: 20, magOffset: 0,
-  topView: 'rta', levMetric: 'lufs', levSpan: 1, levRange: 24, levRefWin: 10, levRef: {}, levSrc: 'meas', bandsSrc: 'meas', bandsWeight: 'Z', bandNoise: null, bandsFloor: -90, bandsCeil: -30, bandIgnore: [], bandIgnoreHz: null, bandPreset: 'iso31', bandCustom: '', bandTallySec: 10, bandGate: -60, thru: false, thruLevel: 0, refAux: false, monMode: 'off', monLevel: -20, voiceSrc: 'ref', voiceTau: 30, voiceGate: -50, voiceHpf: 3, voiceCfg: {}, trOn: false, trModel: 'tiny', trReady: '', strip: {}, voicePanel: true, monOut: '', rtaBands: '3', rtaAvg: 'fast', rtaUnits: 'dbfs', rtaTop: 0, rtaSpan: 100, peakHold: true,
+  topView: 'rta', levMetric: 'lufs', levSpan: 1, levRange: 24, levRefWin: 10, levRef: {}, levSrc: 'meas', bandsSrc: 'meas', bandsWeight: 'Z', bandNoise: null, bandsFloor: -90, bandsCeil: -30, bandIgnore: [], bandIgnoreHz: null, bandPreset: 'iso31', bandCustom: '', bandTallySec: 10, bandGate: -60, thru: false, thruLevel: 0, refAux: false, monMode: 'off', monLevel: -20, voiceSrc: 'ref', voiceTau: 30, voiceGate: -50, voiceHpf: 3, voiceCfg: {}, trOn: false, trModel: 'tiny', trReady: '', strip: {}, dispView: 'voice', voicePanel: true, monOut: '', rtaBands: '3', rtaAvg: 'fast', rtaUnits: 'dbfs', rtaTop: 0, rtaSpan: 100, peakHold: true,
   specFloor: -110, specCeil: -40,
   serial: '', calAngle: '0', applyCal: true, splOffset: null, weight: 'A', timeW: 'fast', calRef: 94,
   micModel: 'umik', calActive: null, layout: null,
@@ -1605,7 +1608,7 @@ function splLeq(){ const sp = S.spl; return sp.T > 0 ? 10 * Math.log10(2 * sp.E 
 /* ---------------- plotting ---------------- */
 const LF0 = Math.log10(20), LF1 = Math.log10(20000);
 function frame(cv, margin){
-  const r = cv.getBoundingClientRect(), d = window.devicePixelRatio || 1;
+  const r = cv.getBoundingClientRect(), d = (cv.ownerDocument.defaultView || window).devicePixelRatio || 1;
   const w = Math.max(1, Math.round(r.width * d)), h = Math.max(1, Math.round(r.height * d));
   if (cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; }
   const g = cv.getContext('2d'); g.setTransform(d, 0, 0, d, 0, 0);
@@ -1669,7 +1672,7 @@ const fmtF = f => f >= 1000 ? (f / 1000).toFixed(f >= 10000 ? 1 : 2) + ' kHz' : 
 const COH_VIEWS = ['lane', 'overlay', 'mist', 'fade', 'off'];
 const COH_LABEL = { lane: 'Lane', overlay: 'Overlay', mist: 'Mist', fade: 'Fade', off: 'Off' };
 // Voice and Levels pair up in all-panes mode: each shows the other underneath, instead of phase and magnitude
-const subView = () => P.layout === 'rta' ? null : P.topView === 'voice' ? 'lev' : P.topView === 'lev' ? 'voice' : null;
+const subView = () => { const v = P.layout === 'rta' ? null : P.topView === 'voice' ? 'lev' : P.topView === 'lev' ? 'voice' : null; return v && !(dispOpen() && DISP.view === v) ? v : null; };
 function drawSub(){
   const F = frame($('#cvSub')), keep = [S.hoverX, S.hoverF, S.levMap];
   S.hoverX = S.hoverF = null; F.sub = true;   // the top plot's hover and drag state don't apply here
@@ -2492,7 +2495,7 @@ function drawVoice(F){
   g.fillStyle = V.open ? C.ok : C.faint;
   g.fillText(V.open ? '● speech' : '○ waiting for speech', F.x0 + 8, F.y1 - 6);
   g.fillStyle = C.dim; g.fillText(`${V.secs.toFixed(0)} s collected`, F.x0 + 150, F.y1 - 6);
-  if (!F.sub) voicePanel(R, V, ok);
+  if (!F.sub) voicePanel(R, V, ok, F.panelEl);
   if (S.hoverF != null && R){
     const i = VOICE_FC.reduce((b, v, j) => Math.abs(Math.log(v / S.hoverF)) < Math.abs(Math.log(VOICE_FC[b] / S.hoverF)) ? j : b, 0);
     return `${fmtHz(S.hoverF)}  ${R.S3[i].toFixed(1)} dBFS  ${R.D[i] >= 0 ? '+' : ''}${R.D[i].toFixed(1)} dB vs natural`;
@@ -2517,9 +2520,10 @@ function voicePauseToggle(){
 const voiceNewCount = () => { const P0 = VH.paused; if (!P0) return 0; return VH.entries.filter(e => e.shownAt != null && e.shownAt > P0.t).length + VH.events.filter(e => e.t0 > P0.t).length; };
 const hms = w => new Date(w).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
 const fixText = f => !f ? '' : f.type === 'hpf' ? `High-pass at <b>${f.f} Hz</b>, ${f.order * 6} dB/oct` : `Cut <b>${Math.abs(f.g)} dB</b> at <b>${fmtHz(f.f)}</b>, Q ${f.q}`;
-function voicePanel(R, V, ok){
-  const el = $('#voicePanel'); if (!el) return;
-  const now = performance.now(); if (now - (S.voicePanelT || 0) < 500) return; S.voicePanelT = now;
+function voicePanel(R, V, ok, el = $('#voicePanel')){
+  if (!el) return;
+  // redrawn twice a second; S.voicePanelT = 0 asks for an immediate redraw
+  const now = performance.now(); if (S.voicePanelT && now - (el._t || 0) < 500) return; el._t = now; S.voicePanelT = now;
   const esc = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
   const W = voiceView(), wallOf = t => Date.now() - (performance.now() - t), nNew = voiceNewCount();
   let h = '';
@@ -2586,19 +2590,20 @@ function voicePanel(R, V, ok){
     }
   }
   const pb = VH.paused ? `<button class="btn mini on" data-act="pause">Paused${nNew ? ` · ${nNew} new` : ''} ▸</button>` : '<button class="btn mini" data-act="pause" title="Freeze this list; analysis keeps running">Pause</button>';
-  const trOld = $('#vpTr'), trStick = !trOld || trOld.scrollTop + trOld.clientHeight >= trOld.scrollHeight - 8, trTop = trOld ? trOld.scrollTop : 0, panTop = el.scrollTop;
+  const trOld = el.querySelector('#vpTr'), trStick = !trOld || trOld.scrollTop + trOld.clientHeight >= trOld.scrollHeight - 8, trTop = trOld ? trOld.scrollTop : 0, panTop = el.scrollTop;
   el.innerHTML = `<div class="vp-top"><b>Vocal check</b><span class="pctl">${pb}<button class="x" data-act="hide" aria-label="Hide">–</button></span></div>` + h;
   S.voiceShown = W.active.filter(e => W.nums.get(e.id)).map(e => ({ num: W.nums.get(e.id), x: W.xOf(e) }));
-  const trNew = $('#vpTr'); if (trNew) trNew.scrollTop = trStick ? trNew.scrollHeight : trTop;
+  const trNew = el.querySelector('#vpTr'); if (trNew) trNew.scrollTop = trStick ? trNew.scrollHeight : trTop;
   el.scrollTop = panTop;
 }
 // taps on the panel: pointerdown, because the panel is redrawn twice a second and a click can land on a replaced node
-$('#voicePanel').addEventListener('pointerdown', e => {
+function vpPointer(e){
   const act = e.target.closest('[data-act]');
   if (act){ e.preventDefault(); if (act.dataset.act === 'pause') voicePauseToggle(); else { P.voicePanel = false; changed(); } return; }
   const it = e.target.closest('[data-sel]'); if (!it) return;
   VH.sel = VH.sel === it.dataset.sel ? null : it.dataset.sel; S.voicePanelT = 0; S.dirty = true;
-});
+}
+$('#voicePanel').addEventListener('pointerdown', vpPointer);
 
 function cycleBandPreset(){
   const ids = Object.keys(BAND_PRESETS).filter(id => id !== 'custom' || parseBandList(P.bandCustom).length >= 2);
@@ -2641,7 +2646,8 @@ function loop(now){
     if (analyze(Math.min(0.5, dtA))) S.dirty = true;
     S.lastAn = now;
   }
-  if (S.dirty){ drawTop(); if (subView()) drawSub(); else { drawPhase(); drawMag(); } S.dirty = false; }
+  if (DISP.win && DISP.win.closed) dispClosed();
+  if (S.dirty){ drawTop(); if (subView()) drawSub(); else { drawPhase(); drawMag(); } drawDisplay(); S.dirty = false; }
   drawMeters(dt);
   monTick(now);
   requestAnimationFrame(loop);
@@ -2853,9 +2859,17 @@ const ACT = {
   spl: { name: 'SPL (tap: fast/slow, hold: start/stop)', group: 'Anchor',
     k: () => ({ top: 'SPL dB' + (P.weight === 'Z' ? 'Z' : P.weight), main: S.running && isFinite(S.spl.inst) ? S.spl.inst.toFixed(1) : '--', sub: S.running ? P.timeW : 'hold: START', bg: S.running ? RD.bg : '#2a1a14', fg: RD.fg, fg2: S.running ? C.dim : C.accent, big: true }),
     press: () => { P.timeW = P.timeW === 'fast' ? 'slow' : 'fast'; changed(); }, hold: toggleRun },
-  layout: { name: 'Layout: single view / all panes', group: 'Anchor', k: () => onKey('LAYOUT', P.layout === 'rta' ? (TOP_NAMES[P.topView] || 'RTA').toUpperCase() : 'ALL', P.layout === 'rta' ? 'only' : 'panes', P.layout === 'rta'), press: toggleLayout },
+  layout: { name: 'All panes / single view', group: 'Top row', k: () => DISP.target === 'display' && dispOpen() ? { top: 'ALL PANES', main: '—', sub: 'main window', bg: '#0f1318', fg: C.faint, fg2: C.faint } : onKey('ALL PANES', P.layout === 'rta' ? 'OFF' : 'ON', P.layout === 'rta' ? (TOP_NAMES[P.topView] || '').toLowerCase() + ' only' : 'all panes', P.layout !== 'rta'),
+    press: () => { if (DISP.target === 'display' && dispOpen()) toast('All panes is for the main window. Swap the deck back with the screen key.'); else toggleLayout(); } },
+  ...Object.fromEntries(TOP_VIEWS.map(v => ['tab' + { rta: 'Rta', spec: 'Spec', ir: 'Ir', lev: 'Lev', bands: 'Bands', voice: 'Voice' }[v], { name: 'View: ' + TOP_NAMES[v], group: 'Top row', k: () => {
+    const two = DISP.target === 'display' && dispOpen(), cur = two ? DISP.view : P.topView, other = two ? P.topView : dispOpen() ? DISP.view : null, lab = { rta: 'RTA', spec: 'SPECT', ir: 'IMPULSE', lev: 'LEVELS', bands: 'BANDS', voice: 'VOICE' }[v];
+    if (v === other) return { top: two ? 'MAIN' : '2ND SCREEN', main: lab, sub: 'shown there', bg: '#0f1318', fg: C.faint, fg2: C.faint };
+    return { ...onKey(two ? '2ND SCREEN' : 'VIEW', lab, v === cur ? 'showing' : '', v === cur), ...(two && v !== cur ? { fg2: '#9cc9ee' } : {}) };
+  }, press: () => DISP.target === 'display' && dispOpen() ? setDispView(v) : setMainView(v) }])),
+  screen: { name: 'Swap the deck between the main window and the second screen', group: 'Top row', k: () => !dispOpen() ? { top: '2ND SCREEN', main: 'OFF', sub: 'open in clever', bg: '#0f1318', fg: C.faint, fg2: C.faint } : { ...onKey('DECK ON', DISP.target === 'display' ? '2ND' : 'MAIN', 'tap: swap', DISP.target === 'display'), ...(DISP.target === 'display' ? {} : { bg: '#1f3b52', fg2: '#9cc9ee' }) },
+    press: () => { if (!dispOpen()){ if (navigator.userActivation && navigator.userActivation.isActive) dispOpenWin(); else toast('Open the second screen with the 2ND button in clever first.'); return; } DISP.target = DISP.target === 'display' ? 'main' : 'display'; dispSync(); S.dirty = true; } },
   view: { name: 'Top view (tap: next, hold: previous)', group: 'Anchor', k: () => onKey('VIEW', { rta: 'RTA', spec: 'SPECT', ir: 'IMPULSE', lev: 'LEVELS', bands: 'BANDS', voice: 'VOICE' }[P.topView], 'hold: back'),
-    press: () => { P.topView = cyc(TOP_VIEWS, P.topView); changed(); }, hold: () => { P.topView = TOP_VIEWS[(TOP_VIEWS.indexOf(P.topView) + TOP_VIEWS.length - 1) % TOP_VIEWS.length]; changed(); } },
+    press: () => { let v = P.topView; do v = cyc(TOP_VIEWS, v); while (dispOpen() && v === DISP.view); setMainView(v); }, hold: () => { let i = TOP_VIEWS.indexOf(P.topView); do i = (i + TOP_VIEWS.length - 1) % TOP_VIEWS.length; while (dispOpen() && TOP_VIEWS[i] === DISP.view); setMainView(TOP_VIEWS[i]); } },
   gen: { name: 'Generator (tap: type, hold: on/off)', group: 'Anchor', k: () => onKey(P.genOn ? 'GEN ON' : 'GEN OFF', P.genType === 'sine' ? 'TONE' : P.genType.toUpperCase(), P.genType === 'sine' ? fmtF(+P.genFreq) + ' · hold' : 'hold: on/off', P.genOn),
     press: () => { P.genType = cyc(['pink', 'white', 'sine'], P.genType); changed(); sendGen(); }, hold: toggleGen },
   run: { name: 'Analyzer start/stop', group: 'Anchor', k: () => ({ top: 'ANALYZER', main: S.running ? 'STOP' : 'START', sub: S.running ? 'running' : 'stopped', bg: S.running ? '#1f4d33' : KEY.idle, fg: C.fg, fg2: S.running ? '#9fe3b9' : C.dim }), press: toggleRun },
@@ -2928,7 +2942,7 @@ const ACT = {
       return { top: 'NEW TALKER', main: 'RESET', sub: (V.open ? '● ' : '') + (V.count ? Math.round(V.secs) + ' s' : ({ aux: 'solo', ref: 'ref', meas: 'mic' })[src]),
         bg: clip ? '#7a1a12' : '#1f2a3a', fg: C.fg, fg2: V.open ? '#9fe3b9' : '#9db4d6', meter: S.running ? Math.max(0, Math.min(1, (db + 60) / 60)) : 0 };
     }, press: () => { voiceReset(); toast('Voice check restarted'); } },
-  voice: { name: 'Voice summary (show/hide list)', group: 'Voice', k: () => voiceKey(), press: () => { if (P.topView !== 'voice'){ P.topView = 'voice'; P.voicePanel = true; } else P.voicePanel = !P.voicePanel; changed(); } },
+  voice: { name: 'Voice summary (show/hide list)', group: 'Voice', k: () => voiceKey(), press: () => { if (dispOpen() && DISP.view === 'voice'){ P.voicePanel = !P.voicePanel; changed(); return; } if (P.topView !== 'voice'){ P.topView = 'voice'; P.voicePanel = true; } else P.voicePanel = !P.voicePanel; changed(); } },
   cut1: { name: 'Suggested cut 1', group: 'Voice', k: () => voiceCutKey(0) },
   cut2: { name: 'Suggested cut 2', group: 'Voice', k: () => voiceCutKey(1) },
   cut3: { name: 'Suggested cut 3', group: 'Voice', k: () => voiceCutKey(2) },
@@ -2961,48 +2975,56 @@ const ACT = {
 // Pages: 8 × 4, row by row. Column 1 is the anchor, the same on every page; the last three keys of the bottom row are shared too.
 const DECK_PAGES = ['all', 'rta', 'spec', 'ir', 'lev', 'bands', 'voice'];
 const DECK_PAGE_NAMES = { all: 'All panes (transfer function)', rta: 'RTA only', spec: 'Spectrograph only', ir: 'Impulse only', lev: 'Levels only', bands: 'Bands only', voice: 'Voice only' };
-const DECK_ANCHOR = ['spl', 'layout', 'view', 'gen'];
+// Top row: the same 8 keys on every page: the six view tabs, All panes and the screen swap. Rows 2–4 follow the view
+// shown on the screen the deck is working on. Bottom row: SPL and generator first, Leq and the input meters last.
+const DECK_TOP = ['tabRta', 'tabSpec', 'tabIr', 'tabLev', 'tabBands', 'tabVoice', 'layout', 'screen'];
 const DECK_DEFAULTS = {
-  all:   [null, 'genDn', 'genUp', 'findDelay', 'dlyDn', 'dlyUp', 'polarity', 'center',
-          null, 'smooth', 'avg', 'avgReset', 'cohBlank', 'magRange', 'cohView', 'capture',
-          null, 'tr1', 'tr2', 'tr3', 'tr4', 'traces', 'weight', 'deck',
-          null, 'toneDn', 'toneUp', 'rtaBands', 'rtaResp', 'leq', 'meterMeas', 'meterRef'],
-  rta:   [null, 'rtaBands', 'rtaResp', 'peakHold', 'peakReset', 'rtaUnits', 'rtaTopDn', 'rtaTopUp',
-          null, 'genDn', 'genUp', 'toneDn', 'toneUp', 'weight', 'rtaSpan', 'capture',
-          null, 'tr1', 'tr2', 'tr3', 'tr4', 'traces', null, 'deck',
-          null, 'splMax', null, null, null, 'leq', 'meterMeas', 'meterRef'],
-  spec:  [null, 'specFloorDn', 'specFloorUp', 'specCeilDn', 'specCeilUp', 'rtaResp', null, null,
-          null, 'genDn', 'genUp', 'toneDn', 'toneUp', 'weight', null, null,
-          null, null, null, null, null, null, null, 'deck',
-          null, 'splMax', null, null, null, 'leq', 'meterMeas', 'meterRef'],
-  ir:    [null, 'findDelay', 'dlyDn', 'dlyUp', 'dlyDn1', 'dlyUp1', 'dlyZero', 'polarity',
-          null, 'genDn', 'genUp', 'avg', 'avgReset', null, null, null,
-          null, null, null, null, null, null, null, 'deck',
-          null, null, null, null, null, 'leq', 'meterMeas', 'meterRef'],
-  lev:   [null, 'levNow', 'levDrift', 'levDrift60', 'levSetRef', 'levRefWin', 'levClearRef', 'levMetric',
-          null, 'levSpan', 'levRange', 'levSrc', 'levPk5', 'levPk60', null, null,
-          null, null, null, null, null, 'weight', null, 'deck',
-          null, 'genDn', 'genUp', null, null, 'leq', 'meterMeas', 'meterRef'],
-  bands: [null, 'bandsHot', 'bandsIgnoreHot', 'bandsAll', 'bandsSrc', 'bandsWeight', 'bandsNoise', 'bandsLevel',
-          null, 'bandsPreset', 'bandsTally', 'bandsGateDn', 'bandsGateUp', null, null, null,
-          null, 'bandsFloorDn', 'bandsFloorUp', 'bandsCeilDn', 'bandsCeilUp', null, 'meterSolo', 'deck',
-          null, 'genDn', 'genUp', null, null, 'leq', 'meterMeas', 'meterRef'],
-  voice: [null, 'newTalker', 'voice', 'eq1', 'eq2', 'eq3', 'eq4', 'meterSolo',
-          null, 'voicePause', 'voiceSens', 'voiceDepth', 'voiceGate', 'voiceTau', 'voiceSrc', null,
-          null, null, null, null, null, null, null, 'deck',
-          null, null, null, null, null, 'leq', 'meterMeas', 'meterRef']
+  all:   [null, null, null, null, null, null, null, null,
+          'genDn', 'genUp', 'findDelay', 'dlyDn', 'dlyUp', 'polarity', 'center', 'capture',
+          'smooth', 'avg', 'avgReset', 'cohBlank', 'magRange', 'cohView', 'tr1', 'tr2',
+          'spl', 'gen', 'tr3', 'tr4', 'traces', 'leq', 'meterMeas', 'meterRef'],
+  rta:   [null, null, null, null, null, null, null, null,
+          'rtaBands', 'rtaResp', 'peakHold', 'peakReset', 'rtaUnits', 'rtaTopDn', 'rtaTopUp', 'rtaSpan',
+          'genDn', 'genUp', 'toneDn', 'toneUp', 'weight', 'capture', 'tr1', 'tr2',
+          'spl', 'gen', 'splMax', 'tr3', 'tr4', 'leq', 'meterMeas', 'meterRef'],
+  spec:  [null, null, null, null, null, null, null, null,
+          'specFloorDn', 'specFloorUp', 'specCeilDn', 'specCeilUp', 'rtaResp', null, null, null,
+          'genDn', 'genUp', 'toneDn', 'toneUp', 'weight', null, null, null,
+          'spl', 'gen', 'splMax', null, null, 'leq', 'meterMeas', 'meterRef'],
+  ir:    [null, null, null, null, null, null, null, null,
+          'findDelay', 'dlyDn', 'dlyUp', 'dlyDn1', 'dlyUp1', 'dlyZero', 'polarity', 'avgReset',
+          'genDn', 'genUp', 'avg', null, null, null, null, null,
+          'spl', 'gen', null, null, null, 'leq', 'meterMeas', 'meterRef'],
+  lev:   [null, null, null, null, null, null, null, null,
+          'levNow', 'levDrift', 'levDrift60', 'levSetRef', 'levRefWin', 'levClearRef', 'levMetric', 'levSrc',
+          'levSpan', 'levRange', 'levPk5', 'levPk60', 'weight', null, null, null,
+          'spl', 'gen', 'genDn', 'genUp', null, 'leq', 'meterMeas', 'meterRef'],
+  bands: [null, null, null, null, null, null, null, null,
+          'bandsHot', 'bandsIgnoreHot', 'bandsAll', 'bandsSrc', 'bandsWeight', 'bandsNoise', 'bandsLevel', 'meterSolo',
+          'bandsPreset', 'bandsTally', 'bandsGateDn', 'bandsGateUp', 'bandsFloorDn', 'bandsFloorUp', 'bandsCeilDn', 'bandsCeilUp',
+          'spl', 'gen', 'genDn', 'genUp', null, 'leq', 'meterMeas', 'meterRef'],
+  voice: [null, null, null, null, null, null, null, null,
+          'newTalker', 'voice', 'eq1', 'eq2', 'eq3', 'eq4', 'voicePause', 'meterSolo',
+          'voiceSrc', 'voiceSens', 'voiceDepth', 'voiceGate', 'voiceTau', null, null, null,
+          'spl', 'gen', null, null, null, 'leq', 'meterMeas', 'meterRef']
 };
-// user layouts: { anchor: [4 ids], pages: { page: [32 ids] } }, only what differs from the defaults
+// user layouts: { v: 2, top: [8 ids], pages: { page: [32 ids] } }, only what differs from the defaults.
+// Layouts from the earlier left-column design (no v: 2) are dropped.
 let DECKL = store.get('ca.deck', null) || {};
-const saveDeckL = () => { store.set('ca.deck', DECKL); deck.sigs = []; };
-const deckPage = () => (P.layout === 'rta' || subView()) && DECK_PAGES.includes(P.topView) ? P.topView : 'all';
+if (DECKL.v !== 2) DECKL = { v: 2 };
+const saveDeckL = () => { DECKL.v = 2; store.set('ca.deck', DECKL); deck.sigs = []; };
+// the deck works on one screen at a time; its pages follow that screen's view
+const deckPage = () => {
+  if (DISP.target === 'display' && dispOpen()) return DISP.view;
+  return (P.layout === 'rta' || subView()) && DECK_PAGES.includes(P.topView) ? P.topView : 'all';
+};
 function deckSlots(page){
-  const s = (DECKL.pages && DECKL.pages[page] || DECK_DEFAULTS[page] || DECK_DEFAULTS.all).slice(), a = DECKL.anchor || DECK_ANCHOR;
-  for (let r = 0; r < 4; r++) s[r * 8] = a[r] ?? null;
+  const s = (DECKL.pages && DECKL.pages[page] || DECK_DEFAULTS[page] || DECK_DEFAULTS.all).slice(), t = DECKL.top || DECK_TOP;
+  for (let c = 0; c < 8; c++) s[c] = t[c] ?? null;
   return s;
 }
 function deckSetSlot(page, i, id){
-  if (i % 8 === 0){ const a = (DECKL.anchor || DECK_ANCHOR).slice(); a[i / 8] = id; DECKL.anchor = a; }
+  if (i < 8){ const t = (DECKL.top || DECK_TOP).slice(); t[i] = id; DECKL.top = t; }
   else { DECKL.pages = DECKL.pages || {}; const s = deckSlots(page); s[i] = id; DECKL.pages[page] = s; }
   saveDeckL();
 }
@@ -3109,14 +3131,14 @@ async function deckRender(){
 }
 /* layout editor: pick a page, tap a key to choose its action, drag one key onto another to swap them */
 const ED = { page: 'all', sel: 1, drag: null, timer: 0 };
-function deckEdOpen(){ ED.page = deckPage(); ED.sel = 1; $('#deckEd').hidden = false; deckEdBuild(); clearInterval(ED.timer); ED.timer = setInterval(deckEdDraw, 400); }
+function deckEdOpen(){ ED.page = deckPage(); ED.sel = 8; $('#deckEd').hidden = false; deckEdBuild(); clearInterval(ED.timer); ED.timer = setInterval(deckEdDraw, 400); }
 function deckEdClose(){ $('#deckEd').hidden = true; clearInterval(ED.timer); }
 function deckEdBuild(){
   const tabs = $('#deTabs'); tabs.innerHTML = '';
   for (const pg of DECK_PAGES){ const b = document.createElement('button'); b.className = 'btn' + (pg === ED.page ? ' on' : ''); b.textContent = DECK_PAGE_NAMES[pg] + (DECKL.pages && DECKL.pages[pg] ? ' *' : ''); b.onclick = () => { ED.page = pg; deckEdBuild(); }; tabs.append(b); }
   const grid = $('#deKeys'); grid.innerHTML = '';
   for (let i = 0; i < 32; i++){
-    const cv = document.createElement('canvas'); cv.width = cv.height = 96; cv.dataset.i = i; if (i % 8 === 0) cv.classList.add('anchor');
+    const cv = document.createElement('canvas'); cv.width = cv.height = 96; cv.dataset.i = i; if (i < 8) cv.classList.add('anchor');
     cv.addEventListener('pointerdown', e => { e.preventDefault(); ED.drag = i; cv.setPointerCapture?.(e.pointerId); });
     cv.addEventListener('pointermove', e => { if (ED.drag == null) return; const t = document.elementFromPoint(e.clientX, e.clientY); grid.querySelectorAll('canvas').forEach(c => c.classList.toggle('drop', c === t && +c.dataset.i !== ED.drag)); });
     cv.addEventListener('pointerup', e => {
@@ -3134,9 +3156,9 @@ function deckEdBuild(){
   for (const [id, a] of Object.entries(ACT)){ (groups[a.group] = groups[a.group] || []).push([id, a]); }
   for (const [g, list] of Object.entries(groups)){ const og = document.createElement('optgroup'); og.label = g; for (const [id, a] of list) og.append(new Option(a.name, id)); sel.append(og); }
   const s = deckSlots(ED.page); sel.value = s[ED.sel] || '';
-  const anchor = ED.sel % 8 === 0;
+  const anchor = ED.sel < 8;
   $('#deSlotLbl').textContent = `Row ${Math.floor(ED.sel / 8) + 1}, key ${ED.sel % 8 + 1}`;
-  $('#deNote').textContent = anchor ? 'This key is in the left column, which is the same on every page, so changing it changes all pages.' : 'Tap a key to choose what it does, or drag it onto another key to swap them. Keys with a hold action do their tap action on a short press and the hold action after half a second.';
+  $('#deNote').textContent = anchor ? 'This key is in the top row, which is the same on every page, so changing it changes all pages.' : 'Tap a key to choose what it does, or drag it onto another key to swap them. Keys with a hold action do their tap action on a short press and the hold action after half a second.';
   deckEdDraw();
 }
 function deckEdDraw(){
@@ -3149,18 +3171,104 @@ $('#btnDeckEd').onclick = deckEdOpen;
 $('#deDone').onclick = deckEdClose;
 $('#deckEd').addEventListener('pointerdown', e => { if (e.target.id === 'deckEd') deckEdClose(); });
 $('#deResetPage').onclick = () => { if (DECKL.pages) delete DECKL.pages[ED.page]; saveDeckL(); deckEdBuild(); toast(DECK_PAGE_NAMES[ED.page] + ' reset to default'); };
-$('#deResetAll').onclick = () => { if (!confirm('Reset every page, and the left column, to the defaults?')) return; DECKL = {}; saveDeckL(); deckEdBuild(); };
-$('#deExport').onclick = () => { const b = new Blob([JSON.stringify({ clever: 'deck-layout', v: 1, ...DECKL }, null, 1)], { type: 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'clever-deck-layout.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); };
+$('#deResetAll').onclick = () => { if (!confirm('Reset every page, and the top row, to the defaults?')) return; DECKL = { v: 2 }; saveDeckL(); deckEdBuild(); };
+$('#deExport').onclick = () => { const b = new Blob([JSON.stringify({ clever: 'deck-layout', ...DECKL, v: 2 }, null, 1)], { type: 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'clever-deck-layout.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); };
 $('#deImport').onclick = () => $('#deFile').click();
 $('#deFile').onchange = async e => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
   try {
-    const j = JSON.parse(await f.text()), ok = id => id == null || id in ACT, L = {};
-    if (Array.isArray(j.anchor) && j.anchor.every(ok)) L.anchor = j.anchor.slice(0, 4);
+    const j = JSON.parse(await f.text()), ok = id => id == null || id in ACT, L = { v: 2 };
+    if (j.v !== 2) throw new Error('old layout');
+    if (Array.isArray(j.top) && j.top.every(ok)) L.top = j.top.slice(0, 8);
     if (j.pages) for (const pg of DECK_PAGES) if (Array.isArray(j.pages[pg]) && j.pages[pg].length === 32) (L.pages = L.pages || {})[pg] = j.pages[pg].map(id => ok(id) ? id : null);
     DECKL = L; saveDeckL(); deckEdBuild(); toast('Layout imported');
   } catch { toast('That file is not a clever deck layout.'); }
 };
+/* ---------------- Second screen ----------------
+   A pop-up window for an external monitor. It runs nothing itself: the main window draws its view straight into
+   the pop-up's canvas each frame (same site, so its DOM is reachable), from the same analysis, so nothing is
+   copied and the two screens stay in step. A view can be on one screen at a time, so nothing is drawn twice.
+   The pop-up has a small heartbeat script: if the main window reloads, it calls back to be rebuilt. */
+const DISP = { win: null, view: P.dispView || 'voice', target: 'main', hoverX: null, hoverF: null, levMap: null, bandsMap: null };
+function dispOpen(){ try { return !!(DISP.win && !DISP.win.closed); } catch { return false; } }
+function setMainView(v){
+  if (dispOpen() && DISP.view === v){ toast(TOP_NAMES[v] + ' is on the second screen.'); return false; }
+  P.topView = v; changed(); return true;
+}
+function setDispView(v){
+  if (v === P.topView){ toast(TOP_NAMES[v] + ' is on the main window.'); return false; }
+  DISP.view = P.dispView = v; save(); dispSync(); syncUI(); S.dirty = true; return true;
+}
+function dispOpenWin(){
+  if (dispOpen()){ DISP.win.focus(); return; }
+  const w = window.open('', 'clever-display', 'popup,width=1280,height=760');
+  if (!w){ toast('The browser blocked the window. Allow pop-ups for this site and try again.', 4000); return; }
+  dispAttach(w);
+  // put it on the other display when the browser allows it (Chrome asks once to manage windows on all displays)
+  if ('getScreenDetails' in window) window.getScreenDetails().then(sd => {
+    const o = sd.screens.find(x => x !== sd.currentScreen);
+    if (o && !w.closed){ w.moveTo(o.availLeft, o.availTop); w.resizeTo(o.availWidth, o.availHeight); }
+  }).catch(() => {});
+}
+window.cleverDisplayAttach = w => { try { if (DISP.win !== w || !w.document.getElementById('dCv')) dispAttach(w); } catch {} };
+function dispAttach(w){
+  DISP.win = w;
+  if (DISP.view === P.topView) DISP.view = ['voice', 'lev', 'bands', 'spec', 'rta', 'ir'].find(v => v !== P.topView);
+  dispBuild(w); syncUI(); deck.sigs = []; S.dirty = true;
+}
+function dispClosed(){ DISP.win = null; DISP.target = 'main'; deck.sigs = []; syncUI(); S.dirty = true; }
+function dispBuild(w){
+  const d = w.document, css = [...document.querySelectorAll('style')].map(x => x.textContent).join('\n'), fonts = [...document.querySelectorAll('link[rel=stylesheet]')].map(l => l.outerHTML).join('');
+  d.open();
+  d.write(`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>clever · second screen</title>${fonts}<style>${css}
+html,body{height:100%;margin:0;overflow:hidden}
+.dwin{height:100%;display:grid;grid-template-rows:auto 1fr;background:var(--bg)}
+.dbar{display:flex;align-items:center;gap:14px;padding:6px 12px;border-bottom:1px solid var(--line);background:var(--panel)}
+.dbar .wm{font-size:18px} .dbar .ro{margin-left:auto}
+.dbar .deckon{font:11px var(--mono);color:var(--accent)}
+.dwin .plotwrap{position:relative;min-height:0}
+.dwait{position:absolute;inset:0;display:grid;place-items:center;color:var(--dim);background:rgba(14,18,23,.88);font-size:16px}
+</style></head><body><div class="dwin"><div class="dbar"><span class="wm">cle<em>v</em>er</span><div class="tabs" id="dTabs">${TOP_VIEWS.map(v => `<button data-v="${v}">${TOP_NAMES[v]}</button>`).join('')}</div><span class="deckon" id="dDeck" hidden>◆ Stream Deck</span><span class="ro" id="dRo"></span><button class="chipbtn" id="dFs" title="Full screen (F)" aria-label="Full screen">⛶</button></div><div class="plotwrap"><canvas class="plot" id="dCv"></canvas><div class="vpanel" id="dPanel" hidden></div><div class="dwait" id="dWait" hidden>Waiting for clever. Keep the main window open.</div></div></div>
+<script>setInterval(function(){var ok=window.__beat&&Date.now()-window.__beat<2500;document.getElementById('dWait').hidden=!!ok;if(!ok){try{opener&&opener.cleverDisplayAttach&&opener.cleverDisplayAttach(window)}catch(e){}}},1000);<\/script></body></html>`);
+  d.close();
+  w.__beat = Date.now();
+  const fs = () => { d.fullscreenElement ? d.exitFullscreen() : d.documentElement.requestFullscreen().catch(() => {}); };
+  d.querySelectorAll('#dTabs button').forEach(b => b.onclick = () => setDispView(b.dataset.v));
+  d.getElementById('dFs').onclick = fs;
+  d.addEventListener('keydown', e => { const k = e.key.toLowerCase(); if (k === 'f') fs(); else if (k >= '1' && k <= '6') setDispView(TOP_VIEWS[+k - 1]); });
+  d.getElementById('dPanel').addEventListener('pointerdown', vpPointer);
+  const cv = d.getElementById('dCv');
+  const hov = e => { const r = cv.getBoundingClientRect(), x = e.clientX - r.left; DISP.hoverX = x; DISP.hoverF = (x < 46 || x > r.width - 34) ? null : xf({ x0: 46, x1: r.width - 34 }, x); S.dirty = true; };
+  cv.addEventListener('pointermove', hov); cv.addEventListener('pointerdown', hov);
+  cv.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse'){ DISP.hoverX = DISP.hoverF = null; S.dirty = true; } });
+  plotInput(cv, { view: () => DISP.view, levMap: () => DISP.levMap, bandsMap: () => DISP.bandsMap });
+  dispSync();
+}
+function dispSync(){
+  if (!dispOpen()) return;
+  try {
+    const d = DISP.win.document;
+    d.querySelectorAll('#dTabs button').forEach(b => { b.classList.toggle('on', b.dataset.v === DISP.view); const away = b.dataset.v === P.topView; b.classList.toggle('away', away); b.title = away ? 'Showing on the main window' : ''; });
+    const dk = d.getElementById('dDeck'); if (dk) dk.hidden = DISP.target !== 'display';
+  } catch {}
+  deck.sigs = [];
+}
+function drawDisplay(){
+  if (!dispOpen()) return;
+  const w = DISP.win; let d; try { d = w.document; } catch { return; }
+  const cv = d.getElementById('dCv'); if (!cv){ dispBuild(w); return; }
+  w.__beat = Date.now();
+  const v = DISP.view, F = frame(cv, v === 'bands' ? bandsLayout(cv.clientWidth) : undefined), el = d.getElementById('dPanel');
+  F.panelEl = el;
+  const keep = [S.hoverX, S.hoverF, S.levMap, S.bandsMap]; S.hoverX = DISP.hoverX; S.hoverF = DISP.hoverF;
+  let ro = '';
+  try { ro = v === 'rta' ? drawRTA(F) : v === 'spec' ? drawSpec(F) : v === 'lev' ? drawLevels(F) : v === 'bands' ? drawBands(F) : v === 'voice' ? drawVoice(F) : drawIR(F); }
+  finally { DISP.levMap = S.levMap; DISP.bandsMap = S.bandsMap; [S.hoverX, S.hoverF, S.levMap, S.bandsMap] = keep; }
+  if (v === 'ir' && P.topView !== 'ir'){ $('#irInfo').textContent = ''; $('#irApply').hidden = true; }
+  d.getElementById('dRo').textContent = ro || '';
+  el.hidden = v !== 'voice' || !P.voicePanel;
+}
+$('#dispBtn').onclick = dispOpenWin;
 const consoleCanvases = [];
 function buildConsole(){
   const grid = $('#consoleGrid'); grid.innerHTML = ''; consoleCanvases.length = 0;
@@ -3260,7 +3368,8 @@ function syncUI(){
   $('#topDelay').textContent = P.delayMs.toFixed(2) + ' ms';
   $('#topDeck').textContent = 'DECK ' + (deck.dev ? 'ON' : '–'); $('#topDeck').classList.toggle('on', !!deck.dev);
   $('#btnDeck').textContent = deck.dev ? 'Reconnect Stream Deck' : 'Connect Stream Deck';
-  document.querySelectorAll('#topTabs button').forEach(b => b.classList.toggle('on', b.dataset.v === P.topView));
+  document.querySelectorAll('#topTabs button').forEach(b => { b.classList.toggle('on', b.dataset.v === P.topView); const away = dispOpen() && b.dataset.v === DISP.view; b.classList.toggle('away', away); b.title = away ? 'Showing on the second screen' : ''; });
+  $('#dispBtn').classList.toggle('on', dispOpen()); $('#dispBtn').textContent = dispOpen() ? '2ND ●' : '2ND';
   const showCon = !!P.showConsole; if ($('#console').hidden === showCon){ $('#console').hidden = !showCon; if (showCon) buildConsole(); }
 }
 function bind(id, key, opts = {}){
@@ -3472,7 +3581,7 @@ sizeLayoutBtn(); document.fonts && document.fonts.ready.then(sizeLayoutBtn);
 function toggleLayout(){ P.layout = P.layout === 'rta' ? 'full' : 'rta'; changed(); }
 $('#layoutBtn').onclick = toggleLayout;
 $('#irApply').onclick = () => { if (S.ir) setDelay(P.delayMs + S.ir.peakMs); };
-document.querySelectorAll('#topTabs button').forEach(b => b.onclick = () => { P.topView = b.dataset.v; changed(); });
+document.querySelectorAll('#topTabs button').forEach(b => b.onclick = () => setMainView(b.dataset.v));
 
 // hover readouts
 for (const id of ['#cvTop', '#cvPhase', '#cvMag']){
@@ -3488,19 +3597,19 @@ for (const id of ['#cvTop', '#cvPhase', '#cvMag']){
   cv.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse'){ S.hoverF = null; S.hoverX = null; S.dirty = true; } });
 }
 // Levels: click or drag on the graph to place the reference. Bands: tap a label to ignore that band.
-(() => {
-  const cv = $('#cvTop');
+// Used for the main top plot and the second screen; `ctx` says which view it shows and where its maps are.
+function plotInput(cv, ctx){
   const levAt = e => {
-    const m = S.levMap, r = cv.getBoundingClientRect(), y = e.clientY - r.top;
+    const m = ctx.levMap(), r = cv.getBoundingClientRect(), y = e.clientY - r.top;
     if (!m || y < m.y0 || y > m.y1) return null;
     return m.bot + (m.y1 - y) / (m.y1 - m.y0) * (m.top - m.bot);
   };
   cv.addEventListener('pointerdown', e => {
-    if (P.topView === 'lev'){
+    if (ctx.view() === 'lev'){
       const v = levAt(e); if (v == null) return;
       S.levDrag = levYRange(); levSetRef(v - levOff()); cv.setPointerCapture?.(e.pointerId);
-    } else if (P.topView === 'bands' && S.bandsMap){
-      const m = S.bandsMap, r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+    } else if (ctx.view() === 'bands' && ctx.bandsMap()){
+      const m = ctx.bandsMap(), r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
       if (y < m.y1 || x < m.x0 || x > m.x1) return;
       const i = Math.min(m.n - 1, Math.floor((x - m.x0) / ((m.x1 - m.x0) / m.n)));
       toggleBandIgnore(m.fc[i]);
@@ -3509,7 +3618,8 @@ for (const id of ['#cvTop', '#cvPhase', '#cvMag']){
   cv.addEventListener('pointermove', e => { if (S.levDrag && (e.buttons & 1)){ const v = levAt(e); if (v != null){ P.levRef = Object.assign({}, P.levRef, { [levRefKey()]: v - levOff() }); S.dirty = true; } } });
   const end = () => { if (S.levDrag){ S.levDrag = null; changed(); } };
   cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
-})();
+}
+plotInput($('#cvTop'), { view: () => P.topView, levMap: () => S.levMap, bandsMap: () => S.bandsMap });
 
 // keyboard
 document.addEventListener('keydown', e => {
@@ -3525,7 +3635,7 @@ document.addEventListener('keydown', e => {
   else if (k === 's') toggleSide();
   else if (k === 'f') toggleFullscreen();
   else if (k === 'k') cycleCohView();
-  else if (k >= '1' && k <= '6'){ P.topView = TOP_VIEWS[+k - 1]; changed(); }
+  else if (k >= '1' && k <= '6') setMainView(TOP_VIEWS[+k - 1]);
   else if (k === 'm') cycleLevMetric();
   else if (P.topView === 'lev' && (k === '-' || k === '_')) levZoom(1);
   else if (P.topView === 'lev' && (k === '=' || k === '+')) levZoom(-1);

@@ -17,7 +17,8 @@ A browser-based real-time audio analyzer for live sound: RTA, spectrograph, dual
 - Pass-through: play a music source on the reference input straight to the amp and measure with it
 - Captured traces with CSV import and export
 - Mic calibration profiles: miniDSP UMIK-1, Dayton iMM-6C, or any frequency/dB text file
-- Stream Deck control over WebHID (XL, MK.2, Original V2), plus an on-screen button console. The keys follow the screen, with a page per view and a fixed left column, and a layout editor
+- Stream Deck control over WebHID (XL, MK.2, Original V2), plus an on-screen button console. A fixed top row of view keys, pages that follow the view, and a layout editor
+- Second screen: a pop-up window for an external monitor showing a different view (say Voice while the laptop shows the RTA); the Stream Deck can switch between the two windows
 - Installable as a home-screen app with offline support; full screen on Android
 - Collapsible settings panel, full screen, and keyboard shortcuts (Space, G, D, C, R, L, S, F, K, M, 1–6)
 
