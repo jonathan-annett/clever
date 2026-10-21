@@ -183,6 +183,17 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
 .notice{position:fixed;z-index:12;left:50%;transform:translateX(-50%);top:120px;width:min(620px,calc(100vw - 32px));background:var(--panel2);border:1px solid var(--grid2);border-left:3px solid var(--accent);border-radius:6px;padding:10px 40px 10px 14px;font-size:14px;box-shadow:0 8px 24px rgba(0,0,0,.45)}
 .notice a{color:var(--accent)}
 .notice .x{position:absolute;right:6px;top:6px;background:none;border:0;color:var(--dim);cursor:pointer;font-size:15px;padding:4px 8px}
+#deckEd{position:fixed;inset:0;z-index:25;background:rgba(5,8,11,.78);display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:24px 12px}
+#deckEd .de{background:var(--panel);border:1px solid var(--grid2);border-radius:8px;padding:14px 16px 16px;width:min(860px,100%);display:grid;gap:12px;box-shadow:0 12px 40px rgba(0,0,0,.5)}
+#deckEd h3{margin:0;font-size:15px;display:flex;justify-content:space-between;align-items:center}
+#deckEd .tabs{display:flex;flex-wrap:wrap;gap:6px}
+#deckEd .tabs .btn{padding:4px 9px;font-size:12px}
+#deckEd .keys{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:6px;user-select:none;touch-action:none}
+#deckEd .keys canvas{width:100%;aspect-ratio:1;border-radius:6px;cursor:grab;outline:2px solid transparent;outline-offset:1px}
+#deckEd .keys canvas.anchor{box-shadow:inset 0 0 0 2px var(--grid2)}
+#deckEd .keys canvas.sel{outline-color:var(--accent)}
+#deckEd .keys canvas.drop{outline-color:var(--live)}
+#deckEd .pick{display:grid;grid-template-columns:auto 1fr;gap:8px;align-items:center}
 #scrim{position:fixed;inset:0;background:rgba(5,8,11,.6);z-index:14}
 @media (max-width:900px){
   .app{height:100dvh}
@@ -419,6 +430,8 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
           <div class="calinfo" id="deckStatus">Not connected.</div>
           <div class="row"><label for="deckBright">Brightness</label><input type="range" id="deckBright" min="5" max="100" step="5"></div>
           <label class="check"><input type="checkbox" id="showConsole">Show on-screen console</label>
+          <div class="btns"><button class="btn" id="btnDeckEd">Edit key layout…</button></div>
+          <p class="note">The keys follow the screen: one page for all panes (transfer function work) and one for each view on its own. The left column is the same on every page.</p>
           <p class="note">Uses WebHID, so Chrome or Edge only. Quit the Elgato Stream Deck app first or it may hold the device. Supports XL (both versions), MK.2 and Original V2.</p>
         </div>
       </details>
@@ -455,6 +468,14 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
           <span class="ro" id="roMag"></span></div>
         <div class="plotwrap"><canvas class="plot" id="cvMag"></canvas></div>
       </section>
+      <div id="deckEd" hidden><div class="de">
+        <h3>Stream Deck layout <button class="btn" id="deDone">Done</button></h3>
+        <div class="tabs" id="deTabs"></div>
+        <div class="keys" id="deKeys"></div>
+        <div class="pick"><label for="deAct" id="deSlotLbl">Key</label><select id="deAct"></select></div>
+        <p class="note" id="deNote"></p>
+        <div class="btns"><button class="btn" id="deResetPage">Reset this page</button><button class="btn" id="deResetAll">Reset all pages</button><button class="btn" id="deExport">Export</button><button class="btn" id="deImport">Import</button><input type="file" id="deFile" accept=".json,application/json" hidden></div>
+      </div></div>
       <section class="console" id="console" hidden><div class="grid" id="consoleGrid"></div></section>
     </main>
   </div>
@@ -2310,50 +2331,182 @@ const cyc = (arr, v) => arr[(arr.findIndex(x => String(x) === String(v)) + 1) % 
 const KEY = { idle: '#1b222c' };
 function onKey(top, main, sub, on){ return { top, main, sub, bg: on ? C.accent : KEY.idle, fg: on ? '#1a1206' : C.fg, fg2: on ? '#3d2a0c' : C.dim }; }
 const SMOOTH_LBL = { 0: 'NONE', 48: '1/48', 24: '1/24', 12: '1/12', 6: '1/6', 3: '1/3', 1: '1/1' };
-const ACTIONS = [
-  // row 1 · engine & generator
-  { k: () => ({ top: 'ANALYZER', main: S.running ? 'STOP' : 'START', sub: S.running ? 'running' : 'stopped', bg: S.running ? '#1f4d33' : KEY.idle, fg: C.fg, fg2: S.running ? '#9fe3b9' : C.dim }), press: toggleRun },
-  // tap: change signal; hold: generator on/off
-  { k: () => onKey(P.genOn ? 'GEN ON' : 'GEN OFF', P.genType === 'sine' ? 'TONE' : P.genType.toUpperCase(), P.genType === 'sine' ? fmtF(+P.genFreq) + ' · hold' : 'hold: on/off', P.genOn),
+// Stream Deck actions: a library of named keys. Pages (below) place them; the deck follows the screen.
+const RD = { bg: '#10202c', fg: '#e8f4ff' };   // readout key colours
+const nudge = (key, d, lo, hi) => () => { P[key] = Math.max(lo, Math.min(hi, +P[key] + d)); changed(); };
+const driftCol = d => d == null ? '#151a21' : Math.abs(d) < 1 ? '#1f4d33' : Math.abs(d) < 3 ? '#6b4a12' : '#7a1a12';
+const fmtDb = (v, d = 1) => v == null || !isFinite(v) ? '--' : (v > 0 ? '+' : '') + v.toFixed(d);
+const BLANK = () => ({ top: '', main: '', sub: '', bg: '#0b0e12', fg: C.faint, fg2: C.faint });
+// the band that has been hot most of the last few seconds (same rule as the Bands readout)
+function bandsLeader(){
+  const rows = BANDS.rows; if (!rows.length) return null;
+  const B = bandSet(), ign = B.fc.map(bandIgnoredHz), gate = +P.bandGate, win = (+P.bandTallySec || 10) * 1000, counts = new Float64Array(B.n); let total = 0;
+  const tEnd = rows[rows.length - 1].t;
+  for (let r = rows.length - 1; r >= 0 && tEnd - rows[r].t <= win; r--){
+    const v = bandsVals(rows[r]); if (bandsTotal(v, ign) < gate) continue;
+    let h = -1, hv = -Infinity; for (let i = 0; i < B.n; i++) if (!ign[i] && isFinite(v[i]) && v[i] > hv){ hv = v[i]; h = i; }
+    if (h >= 0){ counts[h]++; total++; }
+  }
+  let lead = -1; for (let i = 0; i < B.n; i++) if (counts[i] > 0 && (lead < 0 || counts[i] > counts[lead])) lead = i;
+  const lvl = bandsTotal(bandsVals(rows[rows.length - 1]), ign);
+  return { lead, fc: lead >= 0 ? B.fc[lead] : null, fr: total ? counts[lead] / total : 0, total, open: lvl >= gate, lvl };
+}
+function voiceCutKey(n){
+  const R = S.voiceLast, cuts = R ? R.findings.filter(x => x.filter) : [], x = cuts[n];
+  if (!x) return { top: 'CUT ' + (n + 1), main: '—', sub: R ? 'none' : 'no result', bg: '#151a21', fg: C.faint, fg2: C.faint };
+  const f = x.filter, fq = f.f >= 1000 ? (+(f.f / 1000).toFixed(2)) + 'k' : String(f.f);
+  return { top: 'CUT ' + (n + 1), main: f.type === 'hpf' ? 'HPF' : fq, sub: f.type === 'hpf' ? fq + ' Hz' : f.g + ' dB Q' + f.q, bg: x.sev === 'bad' ? '#7a1a12' : x.sev === 'warn' ? '#6b4a12' : '#1f3b52', fg: C.fg, fg2: '#d9cbb0' };
+}
+const ACT = {
+  // anchor keys
+  spl: { name: 'SPL (tap: fast/slow, hold: start/stop)', group: 'Anchor',
+    k: () => ({ top: 'SPL dB' + (P.weight === 'Z' ? 'Z' : P.weight), main: S.running && isFinite(S.spl.inst) ? S.spl.inst.toFixed(1) : '--', sub: S.running ? P.timeW : 'hold: START', bg: S.running ? RD.bg : '#2a1a14', fg: RD.fg, fg2: S.running ? C.dim : C.accent, big: true }),
+    press: () => { P.timeW = P.timeW === 'fast' ? 'slow' : 'fast'; changed(); }, hold: toggleRun },
+  layout: { name: 'Layout: single view / all panes', group: 'Anchor', k: () => onKey('LAYOUT', P.layout === 'rta' ? (TOP_NAMES[P.topView] || 'RTA').toUpperCase() : 'ALL', P.layout === 'rta' ? 'only' : 'panes', P.layout === 'rta'), press: toggleLayout },
+  view: { name: 'Top view (tap: next, hold: previous)', group: 'Anchor', k: () => onKey('VIEW', { rta: 'RTA', spec: 'SPECT', ir: 'IMPULSE', lev: 'LEVELS', bands: 'BANDS', voice: 'VOICE' }[P.topView], 'hold: back'),
+    press: () => { P.topView = cyc(TOP_VIEWS, P.topView); changed(); }, hold: () => { P.topView = TOP_VIEWS[(TOP_VIEWS.indexOf(P.topView) + TOP_VIEWS.length - 1) % TOP_VIEWS.length]; changed(); } },
+  gen: { name: 'Generator (tap: type, hold: on/off)', group: 'Anchor', k: () => onKey(P.genOn ? 'GEN ON' : 'GEN OFF', P.genType === 'sine' ? 'TONE' : P.genType.toUpperCase(), P.genType === 'sine' ? fmtF(+P.genFreq) + ' · hold' : 'hold: on/off', P.genOn),
     press: () => { P.genType = cyc(['pink', 'white', 'sine'], P.genType); changed(); sendGen(); }, hold: toggleGen },
-  { k: () => onKey('LAYOUT', P.layout === 'rta' ? (TOP_NAMES[P.topView] || 'RTA').toUpperCase() : 'ALL', P.layout === 'rta' ? 'only' : 'panes', P.layout === 'rta'), press: toggleLayout },
-  { k: () => onKey('LEVEL', '−2', P.genLevel + ' dBFS'), press: () => { P.genLevel = Math.max(-60, P.genLevel - 2); changed(); sendGen(); } },
-  { k: () => onKey('LEVEL', '+2', P.genLevel + ' dBFS'), press: () => { P.genLevel = Math.min(0, P.genLevel + 2); changed(); sendGen(); } },
-  { k: () => ({ top: 'FIND DELAY', main: P.delayMs.toFixed(2), sub: 'ms', bg: '#2a2140', fg: C.fg, fg2: '#b8a6e8' }), press: findDelay },
-  { k: () => onKey('DELAY', '−0.1', 'ms'), press: () => setDelay(P.delayMs - 0.1) },
-  { k: () => onKey('DELAY', '+0.1', 'ms'), press: () => setDelay(P.delayMs + 0.1) },
-  // row 2 · analysis
-  { k: () => onKey('TOP VIEW', { rta: 'RTA', spec: 'SPECT', ir: 'IMPULSE', lev: 'LEVELS', bands: 'BANDS', voice: 'VOICE' }[P.topView], 'cycle'), press: () => { P.topView = cyc(TOP_VIEWS, P.topView); changed(); } },
-  { k: () => onKey('RTA', P.rtaBands === 'line' ? 'LINE' : '1/' + P.rtaBands, 'bands'), press: () => { P.rtaBands = cyc(['line', '1', '3', '6', '12', '24'], P.rtaBands); buildRtaBands(); changed(); } },
-  { k: () => onKey('SMOOTH', SMOOTH_LBL[P.smooth], 'octave'), press: () => { P.smooth = +cyc([0, 48, 24, 12, 6, 3, 1], P.smooth); changed(); } },
-  { k: () => onKey('AVERAGE', P.avg == 0 ? 'INF' : String(P.avg), 'frames'), press: () => { P.avg = +cyc([1, 2, 4, 8, 16, 32, 0], P.avg); changed(); } },
-  { k: () => onKey('AVERAGES', 'RESET', ''), press: () => { resetAverages(); toast('Averages reset'); } },
-  { k: () => onKey('COH BLANK', P.cohBlank > 0 ? '<' + P.cohBlank : 'OFF', 'coherence', P.cohBlank > 0), press: () => { P.cohBlank = +cyc([0, 0.3, 0.5, 0.7], P.cohBlank); changed(); } },
-  { k: () => ({ ...onKey('POLARITY', P.polarity ? 'INV' : 'NORM', 'meas'), bg: P.polarity ? '#5a1f1a' : KEY.idle }), press: () => { P.polarity = !P.polarity; resetAverages(); changed(); } },
-  { k: () => onKey('MAGNITUDE', 'CENTER', (P.magOffset >= 0 ? '+' : '') + (+P.magOffset).toFixed(1) + ' dB'), press: centerTrace },
-  // row 3 · traces
-  { k: () => ({ top: 'TRACE', main: 'CAPTURE', sub: TRACES.length + ' stored', bg: '#1f3b52', fg: C.fg, fg2: '#9cc9ee' }), press: capture },
-  ...[0, 1, 2, 3].map(i => ({ k: () => traceKey(i), press: () => { const t = TRACES[i]; if (t){ t.visible = !t.visible; saveTraces(); renderTraces(); S.dirty = true; } } })),
-  { k: () => onKey('TRACES', TRACES.some(t => t.visible) ? 'HIDE' : 'SHOW', 'all'), press: () => { const v = !TRACES.some(t => t.visible); TRACES.forEach(t => t.visible = v); saveTraces(); renderTraces(); S.dirty = true; } },
-  // voice check
-  // reset key doubles as a meter for the input the voice check is listening to (the solo channel in a ref/solo setup)
-  { k: () => {
+  run: { name: 'Analyzer start/stop', group: 'Anchor', k: () => ({ top: 'ANALYZER', main: S.running ? 'STOP' : 'START', sub: S.running ? 'running' : 'stopped', bg: S.running ? '#1f4d33' : KEY.idle, fg: C.fg, fg2: S.running ? '#9fe3b9' : C.dim }), press: toggleRun },
+  // generator
+  genDn: { name: 'Generator level −2', group: 'Generator', k: () => onKey('LEVEL', '−2', P.genLevel + ' dBFS'), press: () => { P.genLevel = Math.max(-60, P.genLevel - 2); changed(); sendGen(); } },
+  genUp: { name: 'Generator level +2', group: 'Generator', k: () => onKey('LEVEL', '+2', P.genLevel + ' dBFS'), press: () => { P.genLevel = Math.min(0, P.genLevel + 2); changed(); sendGen(); } },
+  toneDn: { name: 'Tone frequency −1/3 oct', group: 'Generator', k: () => onKey('TONE', '−⅓', fmtF(+P.genFreq)), press: () => { P.genFreq = Math.max(20, Math.round(P.genFreq / Math.pow(2, 1 / 3))); changed(); sendGen(); } },
+  toneUp: { name: 'Tone frequency +1/3 oct', group: 'Generator', k: () => onKey('TONE', '+⅓', fmtF(+P.genFreq)), press: () => { P.genFreq = Math.min(20000, Math.round(P.genFreq * Math.pow(2, 1 / 3))); changed(); sendGen(); } },
+  // delay
+  findDelay: { name: 'Find delay', group: 'Delay', k: () => ({ top: 'FIND DELAY', main: P.delayMs.toFixed(2), sub: 'ms', bg: '#2a2140', fg: C.fg, fg2: '#b8a6e8' }), press: findDelay },
+  dlyDn: { name: 'Delay −0.1 ms', group: 'Delay', k: () => onKey('DELAY', '−0.1', 'ms'), press: () => setDelay(P.delayMs - 0.1) },
+  dlyUp: { name: 'Delay +0.1 ms', group: 'Delay', k: () => onKey('DELAY', '+0.1', 'ms'), press: () => setDelay(P.delayMs + 0.1) },
+  dlyDn1: { name: 'Delay −1 ms', group: 'Delay', k: () => onKey('DELAY', '−1', 'ms'), press: () => setDelay(P.delayMs - 1) },
+  dlyUp1: { name: 'Delay +1 ms', group: 'Delay', k: () => onKey('DELAY', '+1', 'ms'), press: () => setDelay(P.delayMs + 1) },
+  dlyZero: { name: 'Delay to zero', group: 'Delay', k: () => onKey('DELAY', 'ZERO', P.delayMs.toFixed(2) + ' ms'), press: () => setDelay(0) },
+  // transfer function
+  smooth: { name: 'Smoothing', group: 'Transfer function', k: () => onKey('SMOOTH', SMOOTH_LBL[P.smooth], 'octave'), press: () => { P.smooth = +cyc([0, 48, 24, 12, 6, 3, 1], P.smooth); changed(); } },
+  avg: { name: 'Averages', group: 'Transfer function', k: () => onKey('AVERAGE', P.avg == 0 ? 'INF' : String(P.avg), 'frames'), press: () => { P.avg = +cyc([1, 2, 4, 8, 16, 32, 0], P.avg); changed(); } },
+  avgReset: { name: 'Reset averages', group: 'Transfer function', k: () => onKey('AVERAGES', 'RESET', ''), press: () => { resetAverages(); toast('Averages reset'); } },
+  cohBlank: { name: 'Coherence blanking', group: 'Transfer function', k: () => onKey('COH BLANK', P.cohBlank > 0 ? '<' + P.cohBlank : 'OFF', 'coherence', P.cohBlank > 0), press: () => { P.cohBlank = +cyc([0, 0.3, 0.5, 0.7], P.cohBlank); changed(); } },
+  cohView: { name: 'Coherence view', group: 'Transfer function', k: () => onKey('COHERENCE', String(COH_LABEL[P.cohView] || P.cohView).toUpperCase(), 'view'), press: cycleCohView },
+  polarity: { name: 'Polarity', group: 'Transfer function', k: () => ({ ...onKey('POLARITY', P.polarity ? 'INV' : 'NORM', 'meas'), bg: P.polarity ? '#5a1f1a' : KEY.idle }), press: () => { P.polarity = !P.polarity; resetAverages(); changed(); } },
+  center: { name: 'Centre magnitude', group: 'Transfer function', k: () => onKey('MAGNITUDE', 'CENTER', (P.magOffset >= 0 ? '+' : '') + (+P.magOffset).toFixed(1) + ' dB'), press: centerTrace },
+  magRange: { name: 'Magnitude range', group: 'Transfer function', k: () => onKey('MAG RANGE', '±' + P.magRange, 'dB'), press: () => { P.magRange = +cyc([10, 20, 30, 40], P.magRange); changed(); } },
+  // RTA and spectrograph
+  rtaBands: { name: 'RTA resolution', group: 'RTA', k: () => onKey('RTA', P.rtaBands === 'line' ? 'LINE' : '1/' + P.rtaBands, 'bands'), press: () => { P.rtaBands = cyc(['line', '1', '3', '6', '12', '24'], P.rtaBands); changed(); } },
+  rtaResp: { name: 'RTA response', group: 'RTA', k: () => onKey('RESPONSE', P.rtaAvg === 'none' ? 'INST' : P.rtaAvg.toUpperCase(), 'rta'), press: () => { P.rtaAvg = cyc(['none', 'fast', 'slow'], P.rtaAvg); changed(); } },
+  peakHold: { name: 'Peak hold on/off', group: 'RTA', k: () => onKey('PEAK HOLD', P.peakHold ? 'ON' : 'OFF', 'rta', P.peakHold), press: () => { P.peakHold = !P.peakHold; S.peak = null; changed(); } },
+  peakReset: { name: 'Reset peak hold', group: 'RTA', k: () => onKey('PEAK', 'RESET', 'rta'), press: () => { S.peak = null; S.dirty = true; } },
+  rtaUnits: { name: 'RTA units dBFS/SPL', group: 'RTA', k: () => onKey('UNITS', P.rtaUnits === 'spl' ? 'SPL' : 'dBFS', 'rta'), press: () => { P.rtaUnits = P.rtaUnits === 'spl' ? 'dbfs' : 'spl'; P.rtaTop = P.rtaUnits === 'spl' ? 120 : 0; S.peak = null; changed(); } },
+  rtaTopDn: { name: 'RTA top −5 dB', group: 'RTA', k: () => onKey('RTA TOP', '−5', P.rtaTop + ' dB'), press: nudge('rtaTop', -5, -60, 140) },
+  rtaTopUp: { name: 'RTA top +5 dB', group: 'RTA', k: () => onKey('RTA TOP', '+5', P.rtaTop + ' dB'), press: nudge('rtaTop', 5, -60, 140) },
+  rtaSpan: { name: 'RTA span', group: 'RTA', k: () => onKey('RTA SPAN', String(P.rtaSpan), 'dB'), press: () => { P.rtaSpan = +cyc([60, 80, 100, 120], P.rtaSpan); changed(); } },
+  specFloorDn: { name: 'Spectrograph floor −5', group: 'RTA', k: () => onKey('SPEC FLOOR', '−5', P.specFloor + ' dB'), press: nudge('specFloor', -5, -140, 0) },
+  specFloorUp: { name: 'Spectrograph floor +5', group: 'RTA', k: () => onKey('SPEC FLOOR', '+5', P.specFloor + ' dB'), press: nudge('specFloor', 5, -140, 0) },
+  specCeilDn: { name: 'Spectrograph ceiling −5', group: 'RTA', k: () => onKey('SPEC CEIL', '−5', P.specCeil + ' dB'), press: nudge('specCeil', -5, -140, 0) },
+  specCeilUp: { name: 'Spectrograph ceiling +5', group: 'RTA', k: () => onKey('SPEC CEIL', '+5', P.specCeil + ' dB'), press: nudge('specCeil', 5, -140, 0) },
+  // levels
+  levNow: { name: 'Level now (3 s)', group: 'Levels', k: () => { const m = levMean(3); return { top: levShort() + ' 3 s', main: m == null ? '--' : (m + levOff()).toFixed(1), sub: levUnit(), bg: RD.bg, fg: RD.fg, fg2: C.dim, big: true }; } },
+  levDrift: { name: 'Drift, 3 s', group: 'Levels', k: () => { const r = levRefRaw(), m = levMean(3), d = r != null && m != null ? m - r : null; return { top: 'DRIFT 3 s', main: r == null ? 'NO REF' : fmtDb(d), sub: 'dB vs ref', bg: driftCol(d), fg: C.fg, fg2: '#d9cbb0', big: true }; } },
+  levDrift60: { name: 'Drift, 60 s average', group: 'Levels', k: () => { const r = levRefRaw(), m = levMean(60), d = r != null && m != null ? m - r : null; return { top: 'DRIFT 60 s', main: r == null ? 'NO REF' : fmtDb(d), sub: 'dB vs ref', bg: driftCol(d), fg: C.fg, fg2: '#d9cbb0', big: true }; } },
+  levSetRef: { name: 'Set reference from recent level', group: 'Levels', k: () => { const r = levRefRaw(); return { ...onKey('SET REF', 'SET', r == null ? 'none yet' : (r + levOff()).toFixed(1)), bg: '#1f3b52', fg2: '#9cc9ee' }; }, press: levSetFromRecent },
+  levClearRef: { name: 'Clear reference', group: 'Levels', k: () => onKey('REF', 'CLEAR', levRefRaw() == null ? 'none' : ''), press: levClearRef },
+  levRefWin: { name: 'Reference from (window)', group: 'Levels', k: () => { const w = String(P.levRefWin); return onKey('REF FROM', w[0] === 'p' ? w.slice(1) + 's PK' : w + ' s', w[0] === 'p' ? 'peak' : 'average'); }, press: () => { P.levRefWin = cyc(['3', '10', '60', 'p5', 'p60'], P.levRefWin); changed(); } },
+  levMetric: { name: 'Level method (LUFS/Leq/RMS)', group: 'Levels', k: () => onKey('METHOD', levShort(), 'levels'), press: cycleLevMetric },
+  levSpan: { name: 'Levels time span', group: 'Levels', k: () => onKey('SPAN', levSpanLabel().toUpperCase(), 'levels'), press: () => { P.levSpan = LEV_SPANS[(LEV_SPANS.indexOf(+P.levSpan) + 1) % LEV_SPANS.length]; changed(); } },
+  levRange: { name: 'Levels range', group: 'Levels', k: () => onKey('RANGE', '±' + (+P.levRange / 2), 'dB'), press: () => { P.levRange = +cyc([12, 24, 48], P.levRange); changed(); } },
+  levSrc: { name: 'Levels source mic/ref', group: 'Levels', k: () => onKey('SOURCE', levIsRef() ? 'REF' : 'MIC', 'levels'), press: () => { P.levSrc = levIsRef() ? 'meas' : 'ref'; changed(); } },
+  levPk5: { name: 'Peak, last 5 s', group: 'Levels', k: () => { const st = levStats(5); return { top: 'PEAK 5 s', main: st ? (st.peak + levOff()).toFixed(1) : '--', sub: levUnit(), bg: RD.bg, fg: RD.fg, fg2: C.dim }; } },
+  levPk60: { name: 'Peak, last 60 s', group: 'Levels', k: () => { const st = levStats(60); return { top: 'PEAK 60 s', main: st ? (st.peak + levOff()).toFixed(1) : '--', sub: levUnit(), bg: RD.bg, fg: RD.fg, fg2: C.dim }; } },
+  // bands
+  bandsHot: { name: 'Hot band', group: 'Bands', k: () => { const L = bandsLeader(), ok = L && L.lead >= 0 && L.total >= 5 && L.open; return { top: 'HOT BAND', main: ok ? bandLabel(L.fc) : '—', sub: !L ? 'no data' : !L.open ? 'below gate' : ok ? Math.round(L.fr * 100) + '%' : 'no leader', bg: ok && L.fr >= 0.6 ? '#7a1a12' : ok && L.fr >= 0.35 ? '#6b4a12' : '#151a21', fg: C.fg, fg2: '#d9cbb0', big: true }; } },
+  bandsIgnoreHot: { name: 'Ignore the hot band', group: 'Bands', k: () => { const L = bandsLeader(); return onKey('IGNORE', L && L.fc ? bandLabel(L.fc) : '—', 'hot band'); }, press: () => { const L = bandsLeader(); if (L && L.fc){ toggleBandIgnore(L.fc); toast('Ignoring ' + bandLabel(L.fc) + ' Hz'); } } },
+  bandsAll: { name: 'Use all bands', group: 'Bands', k: () => onKey('BANDS', 'ALL', (P.bandIgnoreHz || []).length + ' ignored'), press: () => { P.bandIgnoreHz = []; changed(); } },
+  bandsSrc: { name: 'Bands source', group: 'Bands', k: () => onKey('SOURCE', ({ meas: 'MIC', ref: 'REF', aux: 'SOLO' })[P.bandsSrc], 'bands'), press: () => $('#bandsSrcBtn').click() },
+  bandsWeight: { name: 'Bands weighting', group: 'Bands', k: () => onKey('WEIGHT', P.bandsWeight || 'Z', 'bands'), press: () => $('#bandsWeightBtn').click() },
+  bandsNoise: { name: 'Set gate from noise', group: 'Bands', k: () => onKey('GATE', 'NOISE', 'set from room'), press: bandsSetGateFromNoise },
+  bandsGateDn: { name: 'Silence gate −3', group: 'Bands', k: () => onKey('GATE', '−3', P.bandGate + ' dB'), press: nudge('bandGate', -3, -120, 0) },
+  bandsGateUp: { name: 'Silence gate +3', group: 'Bands', k: () => onKey('GATE', '+3', P.bandGate + ' dB'), press: nudge('bandGate', 3, -120, 0) },
+  bandsLevel: { name: 'Bands overall level', group: 'Bands', k: () => { const L = bandsLeader(); return { top: 'LEVEL', main: L && isFinite(L.lvl) ? L.lvl.toFixed(1) : '--', sub: 'gate ' + P.bandGate, bg: L && L.open ? RD.bg : '#151a21', fg: RD.fg, fg2: C.dim }; } },
+  bandsPreset: { name: 'Band layout', group: 'Bands', k: () => onKey('LAYOUT', String(bandSet().n), 'bands'), press: () => $('#bandPresetBtn').click() },
+  bandsTally: { name: 'Hot tally window', group: 'Bands', k: () => onKey('TALLY', P.bandTallySec + ' s', 'hot window'), press: () => { P.bandTallySec = +cyc([5, 10, 20], P.bandTallySec); changed(); } },
+  bandsFloorDn: { name: 'Bands floor −5', group: 'Bands', k: () => onKey('FLOOR', '−5', P.bandsFloor + ' dB'), press: nudge('bandsFloor', -5, -140, 0) },
+  bandsFloorUp: { name: 'Bands floor +5', group: 'Bands', k: () => onKey('FLOOR', '+5', P.bandsFloor + ' dB'), press: nudge('bandsFloor', 5, -140, 0) },
+  bandsCeilDn: { name: 'Bands ceiling −5', group: 'Bands', k: () => onKey('CEILING', '−5', P.bandsCeil + ' dB'), press: nudge('bandsCeil', -5, -140, 0) },
+  bandsCeilUp: { name: 'Bands ceiling +5', group: 'Bands', k: () => onKey('CEILING', '+5', P.bandsCeil + ' dB'), press: nudge('bandsCeil', 5, -140, 0) },
+  // voice
+  newTalker: { name: 'New talker (with meter)', group: 'Voice', k: () => {
       const src = voiceSrc(), V = VOICE[src], m = S.meter[src], db = m.disp ?? -120, clip = performance.now() - m.clip < 1500;
       return { top: 'NEW TALKER', main: 'RESET', sub: (V.open ? '● ' : '') + (V.count ? Math.round(V.secs) + ' s' : ({ aux: 'solo', ref: 'ref', meas: 'mic' })[src]),
         bg: clip ? '#7a1a12' : '#1f2a3a', fg: C.fg, fg2: V.open ? '#9fe3b9' : '#9db4d6', meter: S.running ? Math.max(0, Math.min(1, (db + 60) / 60)) : 0 };
-    },
-    press: () => { voiceReset(); toast('Voice check restarted'); } },
-  { k: voiceKey, press: () => { if (P.topView !== 'voice'){ P.topView = 'voice'; P.voicePanel = true; } else P.voicePanel = !P.voicePanel; changed(); } },
-  // row 4 · level
-  { k: () => ({ top: 'SPL dB' + (P.weight === 'Z' ? 'Z' : P.weight), main: S.running && isFinite(S.spl.inst) ? S.spl.inst.toFixed(1) : '--', sub: P.timeW, bg: '#10202c', fg: '#e8f4ff', fg2: C.dim, big: true }), press: () => { P.timeW = P.timeW === 'fast' ? 'slow' : 'fast'; changed(); } },
-  { k: () => onKey('WEIGHTING', P.weight, 'A / C / Z'), press: () => { P.weight = cyc(['A', 'C', 'Z'], P.weight); buildSplWeights(); changed(); } },
-  { k: () => { const l = splLeq(); return { top: 'LEQ', main: S.running && l != null ? l.toFixed(1) : '--', sub: 'press: reset', bg: '#10202c', fg: '#e8f4ff', fg2: C.dim, big: true }; }, press: () => { resetLeq(); toast('Leq and Max reset'); } },
-  { k: () => meterKey('MEAS IN', S.meter.meas), press: () => {} },
-  { k: () => meterKey('REF IN', S.meter.ref), press: () => {} },
-  { k: () => onKey('MAG RANGE', '±' + P.magRange, 'dB'), press: () => { P.magRange = +cyc([10, 20, 30, 40], P.magRange); changed(); } },
-  { k: () => onKey('RTA', P.rtaAvg === 'none' ? 'INST' : P.rtaAvg.toUpperCase(), 'response'), press: () => { P.rtaAvg = cyc(['none', 'fast', 'slow'], P.rtaAvg); changed(); } },
-  { k: () => onKey('DECK', P.deckBright + '%', 'brightness'), press: () => { P.deckBright = +cyc([20, 40, 70, 100], P.deckBright); deckBrightness(); changed(); } }
-];
+    }, press: () => { voiceReset(); toast('Voice check restarted'); } },
+  voice: { name: 'Voice summary (show/hide list)', group: 'Voice', k: () => voiceKey(), press: () => { if (P.topView !== 'voice'){ P.topView = 'voice'; P.voicePanel = true; } else P.voicePanel = !P.voicePanel; changed(); } },
+  cut1: { name: 'Suggested cut 1', group: 'Voice', k: () => voiceCutKey(0) },
+  cut2: { name: 'Suggested cut 2', group: 'Voice', k: () => voiceCutKey(1) },
+  cut3: { name: 'Suggested cut 3', group: 'Voice', k: () => voiceCutKey(2) },
+  voiceSrc: { name: 'Voice source', group: 'Voice', k: () => onKey('SOURCE', ({ aux: 'SOLO', ref: 'REF', meas: 'MIC' })[P.voiceSrc], 'voice'), press: () => { P.voiceSrc = cyc(['aux', 'ref', 'meas'], P.voiceSrc); changed(); } },
+  voiceSens: { name: 'Voice sensitivity', group: 'Voice', k: () => { const s = DSP.voiceCfg(P.voiceCfg).sens; return onKey('SENSITIVITY', ({ 1.5: 'GENTLE', 1.25: 'RELAXED', 1: 'NORMAL', 0.75: 'STRICT' })[s] || 'x' + s, 'voice'); }, press: () => voiceCfgSet('sens', +cyc([1.5, 1.25, 1, 0.75], DSP.voiceCfg(P.voiceCfg).sens)) },
+  voiceDepth: { name: 'Voice cut depth', group: 'Voice', k: () => onKey('CUT DEPTH', Math.round(DSP.voiceCfg(P.voiceCfg).depth * 100) + '%', 'voice'), press: () => voiceCfgSet('depth', +cyc([1, 0.75, 0.5, 0.25], DSP.voiceCfg(P.voiceCfg).depth)) },
+  voiceGate: { name: 'Voice gate from noise', group: 'Voice', k: () => onKey('SPEECH GATE', 'NOISE', P.voiceGate + ' dB'), press: voiceGateFromNoise },
+  voiceTau: { name: 'Voice average window', group: 'Voice', k: () => onKey('AVERAGE', +P.voiceTau ? P.voiceTau + ' s' : 'ALL', 'speech'), press: () => { P.voiceTau = +cyc([10, 30, 0], P.voiceTau); changed(); } },
+  // traces
+  capture: { name: 'Capture trace', group: 'Traces', k: () => ({ top: 'TRACE', main: 'CAPTURE', sub: TRACES.length + ' stored', bg: '#1f3b52', fg: C.fg, fg2: '#9cc9ee' }), press: capture },
+  ...Object.fromEntries([0, 1, 2, 3].map(i => ['tr' + (i + 1), { name: 'Trace ' + (i + 1) + ' on/off', group: 'Traces', k: () => traceKey(i), press: () => { const t = TRACES[i]; if (t){ t.visible = !t.visible; saveTraces(); renderTraces(); S.dirty = true; } } }])),
+  traces: { name: 'Show/hide all traces', group: 'Traces', k: () => onKey('TRACES', TRACES.some(t => t.visible) ? 'HIDE' : 'SHOW', 'all'), press: () => { const v = !TRACES.some(t => t.visible); TRACES.forEach(t => t.visible = v); saveTraces(); renderTraces(); S.dirty = true; } },
+  // meters and SPL
+  leq: { name: 'Leq (press: reset)', group: 'Meters', k: () => { const l = splLeq(); return { top: 'LEQ', main: S.running && l != null ? l.toFixed(1) : '--', sub: 'press: reset', bg: RD.bg, fg: RD.fg, fg2: C.dim, big: true }; }, press: () => { resetLeq(); toast('Leq and Max reset'); } },
+  splMax: { name: 'SPL max (press: reset)', group: 'Meters', k: () => ({ top: 'MAX', main: S.running && isFinite(S.spl.max) ? S.spl.max.toFixed(1) : '--', sub: 'press: reset', bg: RD.bg, fg: RD.fg, fg2: C.dim }), press: () => { resetLeq(); toast('Leq and Max reset'); } },
+  weight: { name: 'SPL weighting', group: 'Meters', k: () => onKey('WEIGHTING', P.weight, 'A / C / Z'), press: () => { P.weight = cyc(['A', 'C', 'Z'], P.weight); buildSplWeights(); changed(); } },
+  meterMeas: { name: 'Mic input meter', group: 'Meters', k: () => meterKey('MEAS IN', S.meter.meas) },
+  meterRef: { name: 'Reference input meter', group: 'Meters', k: () => meterKey('REF IN', S.meter.ref) },
+  meterSolo: { name: 'Solo input meter', group: 'Meters', k: () => S.auxOn ? meterKey('SOLO IN', S.meter.aux) : { top: 'SOLO IN', main: 'OFF', sub: 'not connected', bg: '#151a21', fg: C.faint, fg2: C.faint } },
+  deck: { name: 'Deck brightness', group: 'Meters', k: () => onKey('DECK', P.deckBright + '%', 'brightness'), press: () => { P.deckBright = +cyc([20, 40, 70, 100], P.deckBright); deckBrightness(); changed(); } }
+};
+// Pages: 8 × 4, row by row. Column 1 is the anchor, the same on every page; the last three keys of the bottom row are shared too.
+const DECK_PAGES = ['all', 'rta', 'spec', 'ir', 'lev', 'bands', 'voice'];
+const DECK_PAGE_NAMES = { all: 'All panes (transfer function)', rta: 'RTA only', spec: 'Spectrograph only', ir: 'Impulse only', lev: 'Levels only', bands: 'Bands only', voice: 'Voice only' };
+const DECK_ANCHOR = ['spl', 'layout', 'view', 'gen'];
+const DECK_DEFAULTS = {
+  all:   [null, 'genDn', 'genUp', 'findDelay', 'dlyDn', 'dlyUp', 'polarity', 'center',
+          null, 'smooth', 'avg', 'avgReset', 'cohBlank', 'magRange', 'cohView', 'capture',
+          null, 'tr1', 'tr2', 'tr3', 'tr4', 'traces', 'weight', 'deck',
+          null, 'toneDn', 'toneUp', 'rtaBands', 'rtaResp', 'leq', 'meterMeas', 'meterRef'],
+  rta:   [null, 'rtaBands', 'rtaResp', 'peakHold', 'peakReset', 'rtaUnits', 'rtaTopDn', 'rtaTopUp',
+          null, 'genDn', 'genUp', 'toneDn', 'toneUp', 'weight', 'rtaSpan', 'capture',
+          null, 'tr1', 'tr2', 'tr3', 'tr4', 'traces', null, 'deck',
+          null, 'splMax', null, null, null, 'leq', 'meterMeas', 'meterRef'],
+  spec:  [null, 'specFloorDn', 'specFloorUp', 'specCeilDn', 'specCeilUp', 'rtaResp', null, null,
+          null, 'genDn', 'genUp', 'toneDn', 'toneUp', 'weight', null, null,
+          null, null, null, null, null, null, null, 'deck',
+          null, 'splMax', null, null, null, 'leq', 'meterMeas', 'meterRef'],
+  ir:    [null, 'findDelay', 'dlyDn', 'dlyUp', 'dlyDn1', 'dlyUp1', 'dlyZero', 'polarity',
+          null, 'genDn', 'genUp', 'avg', 'avgReset', null, null, null,
+          null, null, null, null, null, null, null, 'deck',
+          null, null, null, null, null, 'leq', 'meterMeas', 'meterRef'],
+  lev:   [null, 'levNow', 'levDrift', 'levDrift60', 'levSetRef', 'levRefWin', 'levClearRef', 'levMetric',
+          null, 'levSpan', 'levRange', 'levSrc', 'levPk5', 'levPk60', null, null,
+          null, null, null, null, null, 'weight', null, 'deck',
+          null, 'genDn', 'genUp', null, null, 'leq', 'meterMeas', 'meterRef'],
+  bands: [null, 'bandsHot', 'bandsIgnoreHot', 'bandsAll', 'bandsSrc', 'bandsWeight', 'bandsNoise', 'bandsLevel',
+          null, 'bandsPreset', 'bandsTally', 'bandsGateDn', 'bandsGateUp', null, null, null,
+          null, 'bandsFloorDn', 'bandsFloorUp', 'bandsCeilDn', 'bandsCeilUp', null, 'meterSolo', 'deck',
+          null, 'genDn', 'genUp', null, null, 'leq', 'meterMeas', 'meterRef'],
+  voice: [null, 'newTalker', 'voice', 'cut1', 'cut2', 'cut3', 'voiceSrc', 'meterSolo',
+          null, 'voiceSens', 'voiceDepth', 'voiceGate', 'voiceTau', null, null, null,
+          null, null, null, null, null, null, null, 'deck',
+          null, null, null, null, null, 'leq', 'meterMeas', 'meterRef']
+};
+// user layouts: { anchor: [4 ids], pages: { page: [32 ids] } }, only what differs from the defaults
+let DECKL = store.get('ca.deck', null) || {};
+const saveDeckL = () => { store.set('ca.deck', DECKL); deck.sigs = []; };
+const deckPage = () => P.layout === 'rta' && DECK_PAGES.includes(P.topView) ? P.topView : 'all';
+function deckSlots(page){
+  const s = (DECKL.pages && DECKL.pages[page] || DECK_DEFAULTS[page] || DECK_DEFAULTS.all).slice(), a = DECKL.anchor || DECK_ANCHOR;
+  for (let r = 0; r < 4; r++) s[r * 8] = a[r] ?? null;
+  return s;
+}
+function deckSetSlot(page, i, id){
+  if (i % 8 === 0){ const a = (DECKL.anchor || DECK_ANCHOR).slice(); a[i / 8] = id; DECKL.anchor = a; }
+  else { DECKL.pages = DECKL.pages || {}; const s = deckSlots(page); s[i] = id; DECKL.pages[page] = s; }
+  saveDeckL();
+}
 // summary of the vocal check for the deck: number of suggested cuts, coloured by the worst finding
 function voiceKey(){
   const V = VOICE[voiceSrc()], R = S.voiceLast;
@@ -2385,12 +2538,10 @@ function drawKey(g, s, k){
   else if (k.sub){ g.fillStyle = k.fg2; g.font = `500 ${11 * u}px ${MONO}`; g.fillText(k.sub, s / 2, 90 * u); }
 }
 function keysPerPage(){ const m = deck.model || DECKS[0x006c]; return m.cols * m.rows; }
+// key i on the connected deck (or console) maps to a slot on the 8 × 4 page; smaller decks show the top-left part
 function actionAt(i){
-  const per = keysPerPage();
-  if (per >= ACTIONS.length) return ACTIONS[i];
-  const usable = per - 1, pages = Math.ceil(ACTIONS.length / usable);
-  if (i === per - 1) return { k: () => onKey('PAGE', (deck.page + 1) + '/' + pages, 'next'), press: () => { deck.page = (deck.page + 1) % pages; deck.sigs = []; } };
-  return ACTIONS[deck.page * usable + i];
+  const m = deck.model || DECKS[0x006c], r = Math.floor(i / m.cols), c = i % m.cols, id = deckSlots(deckPage())[r * 8 + c];
+  return id && ACT[id] || null;
 }
 async function deckConnect(){
   if (!('hid' in navigator)){ toast('WebHID is not available. Use Chrome or Edge on desktop.', 4000); return; }
@@ -2457,6 +2608,60 @@ async function deckRender(){
     if (deck.dev && !deck.dev.opened){ deck.dev = null; $('#deckStatus').textContent = 'Disconnected.'; syncUI(); }
   } finally { deck.busy = false; }
 }
+/* layout editor: pick a page, tap a key to choose its action, drag one key onto another to swap them */
+const ED = { page: 'all', sel: 1, drag: null, timer: 0 };
+function deckEdOpen(){ ED.page = deckPage(); ED.sel = 1; $('#deckEd').hidden = false; deckEdBuild(); clearInterval(ED.timer); ED.timer = setInterval(deckEdDraw, 400); }
+function deckEdClose(){ $('#deckEd').hidden = true; clearInterval(ED.timer); }
+function deckEdBuild(){
+  const tabs = $('#deTabs'); tabs.innerHTML = '';
+  for (const pg of DECK_PAGES){ const b = document.createElement('button'); b.className = 'btn' + (pg === ED.page ? ' on' : ''); b.textContent = DECK_PAGE_NAMES[pg] + (DECKL.pages && DECKL.pages[pg] ? ' *' : ''); b.onclick = () => { ED.page = pg; deckEdBuild(); }; tabs.append(b); }
+  const grid = $('#deKeys'); grid.innerHTML = '';
+  for (let i = 0; i < 32; i++){
+    const cv = document.createElement('canvas'); cv.width = cv.height = 96; cv.dataset.i = i; if (i % 8 === 0) cv.classList.add('anchor');
+    cv.addEventListener('pointerdown', e => { e.preventDefault(); ED.drag = i; cv.setPointerCapture?.(e.pointerId); });
+    cv.addEventListener('pointermove', e => { if (ED.drag == null) return; const t = document.elementFromPoint(e.clientX, e.clientY); grid.querySelectorAll('canvas').forEach(c => c.classList.toggle('drop', c === t && +c.dataset.i !== ED.drag)); });
+    cv.addEventListener('pointerup', e => {
+      const from = ED.drag; ED.drag = null; grid.querySelectorAll('.drop').forEach(c => c.classList.remove('drop'));
+      const t = document.elementFromPoint(e.clientX, e.clientY), to = t && t.dataset && t.dataset.i != null ? +t.dataset.i : from;
+      if (from == null) return;
+      if (to !== from){ const s = deckSlots(ED.page), a = s[from], b = s[to]; deckSetSlot(ED.page, from, b); deckSetSlot(ED.page, to, a); ED.sel = to; }
+      else ED.sel = from;
+      deckEdBuild();
+    });
+    grid.append(cv);
+  }
+  const sel = $('#deAct'), groups = {};
+  sel.innerHTML = ''; sel.add(new Option('(empty)', ''));
+  for (const [id, a] of Object.entries(ACT)){ (groups[a.group] = groups[a.group] || []).push([id, a]); }
+  for (const [g, list] of Object.entries(groups)){ const og = document.createElement('optgroup'); og.label = g; for (const [id, a] of list) og.append(new Option(a.name, id)); sel.append(og); }
+  const s = deckSlots(ED.page); sel.value = s[ED.sel] || '';
+  const anchor = ED.sel % 8 === 0;
+  $('#deSlotLbl').textContent = `Row ${Math.floor(ED.sel / 8) + 1}, key ${ED.sel % 8 + 1}`;
+  $('#deNote').textContent = anchor ? 'This key is in the left column, which is the same on every page, so changing it changes all pages.' : 'Tap a key to choose what it does, or drag it onto another key to swap them. Keys with a hold action do their tap action on a short press and the hold action after half a second.';
+  deckEdDraw();
+}
+function deckEdDraw(){
+  if ($('#deckEd').hidden) return;
+  const s = deckSlots(ED.page);
+  $('#deKeys').querySelectorAll('canvas').forEach((cv, i) => { const a = s[i] && ACT[s[i]]; drawKey(cv.getContext('2d'), 96, a ? a.k() : BLANK()); cv.classList.toggle('sel', i === ED.sel); });
+}
+$('#deAct').onchange = e => { deckSetSlot(ED.page, ED.sel, e.target.value || null); deckEdBuild(); };
+$('#btnDeckEd').onclick = deckEdOpen;
+$('#deDone').onclick = deckEdClose;
+$('#deckEd').addEventListener('pointerdown', e => { if (e.target.id === 'deckEd') deckEdClose(); });
+$('#deResetPage').onclick = () => { if (DECKL.pages) delete DECKL.pages[ED.page]; saveDeckL(); deckEdBuild(); toast(DECK_PAGE_NAMES[ED.page] + ' reset to default'); };
+$('#deResetAll').onclick = () => { if (!confirm('Reset every page, and the left column, to the defaults?')) return; DECKL = {}; saveDeckL(); deckEdBuild(); };
+$('#deExport').onclick = () => { const b = new Blob([JSON.stringify({ clever: 'deck-layout', v: 1, ...DECKL }, null, 1)], { type: 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'clever-deck-layout.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); };
+$('#deImport').onclick = () => $('#deFile').click();
+$('#deFile').onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  try {
+    const j = JSON.parse(await f.text()), ok = id => id == null || id in ACT, L = {};
+    if (Array.isArray(j.anchor) && j.anchor.every(ok)) L.anchor = j.anchor.slice(0, 4);
+    if (j.pages) for (const pg of DECK_PAGES) if (Array.isArray(j.pages[pg]) && j.pages[pg].length === 32) (L.pages = L.pages || {})[pg] = j.pages[pg].map(id => ok(id) ? id : null);
+    DECKL = L; saveDeckL(); deckEdBuild(); toast('Layout imported');
+  } catch { toast('That file is not a clever deck layout.'); }
+};
 const consoleCanvases = [];
 function buildConsole(){
   const grid = $('#consoleGrid'); grid.innerHTML = ''; consoleCanvases.length = 0;
@@ -2793,6 +2998,7 @@ for (const id of ['#cvTop', '#cvPhase', '#cvMag']){
 
 // keyboard
 document.addEventListener('keydown', e => {
+  if (!$('#deckEd').hidden){ if (e.key === 'Escape') deckEdClose(); return; }
   if (e.target.matches('input,select,textarea,button') || e.metaKey || e.ctrlKey || e.altKey) return;
   const k = e.key.toLowerCase();
   if (k === ' '){ e.preventDefault(); toggleRun(); }

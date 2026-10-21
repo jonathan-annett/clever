@@ -1,6 +1,6 @@
 // clever service worker: network first, cache fallback, so updates arrive
 // when online and the app still opens at a venue with no signal.
-const CACHE = 'clever-v28';
+const CACHE = 'clever-v29';
 const SHELL = ['./', 'guide.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
