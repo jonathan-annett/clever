@@ -154,7 +154,11 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
 #drop{position:fixed;inset:0;background:rgba(14,18,23,.85);display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--accent);border:3px dashed var(--accent);z-index:30}
 
 .app.rta .main{grid-template-rows:1fr auto}
-.app.rta .tf{opacity:.3}   /* dimmed, not hidden, so the buttons after it don't move under the pointer */
+.app.rta .chip.tf{opacity:.3}   /* dimmed, not hidden, so the buttons after it don't move under the pointer */
+.app.rta .pane.tf,.app.rta .pane.sub{display:none}
+/* all panes with Voice or Levels on top: the other one goes underneath instead of phase and magnitude */
+.app.subon .main{grid-template-rows:1fr .5fr auto}
+.app.subon .pane.tf{display:none}
 @media (min-width:901px){
   .app.nside .shell{grid-template-columns:1fr}
   .app.nside .side{display:none}
@@ -473,6 +477,10 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
         </div>
         <div class="plotwrap"><canvas class="plot" id="cvTop"></canvas><div class="vpanel" id="voicePanel" hidden></div><div class="idle" id="idle1"><div class="splash"><div class="wm">cle<em>v</em>er</div><div class="tag">RTA · transfer function · delay finder · SPL</div><div class="hint">Press Start to open the mic</div></div></div></div>
       </section>
+      <section class="pane sub" id="subPane" hidden>
+        <div class="phead"><span class="title" id="subTitle">Levels</span><span class="ro" id="roSub"></span></div>
+        <div class="plotwrap"><canvas class="plot" id="cvSub"></canvas></div>
+      </section>
       <section class="pane tf">
         <div class="phead"><span class="title">Phase</span><span class="ro" id="roPhase"></span></div>
         <div class="plotwrap"><canvas class="plot" id="cvPhase"></canvas></div>
@@ -731,14 +739,15 @@ const DSP = (() => {
       return x => { const y = B0 * x + B1 * x1 + B2 * x2 - A1 * y1 - A2 * y2; x2 = x1; x1 = x; y2 = y1; y1 = y; return y; };
     };
     const lo = [bq('lp', 60, 0.541), bq('lp', 60, 1.307)], co = [bq('hp', 300), bq('lp', 3000)], si = [bq('hp', 5000, 0.541), bq('hp', 5000, 1.307), bq('lp', 11000)];
-    const FR = Math.round(fs * 0.02), st = { n: 0, eL: 0, eC: 0, eS: 0, ref: null, speechFrames: 0, cur: {}, last: {}, lastSpeech: -1e9, lowBase: null, t: 0, ev: [] };
+    const FR = Math.round(fs * 0.02), st = { n: 0, eL: 0, eC: 0, eS: 0, ref: null, speechFrames: 0, cur: {}, last: {}, popRun: 0, popBase: 0, lastSpeech: -1e9, lowBase: null, t: 0, ev: [] };
     const dB = e => 10 * Math.log10(2 * e + 1e-20);
     function frame(tMs, o){
       const L = dB(st.eL / FR), Cr = dB(st.eC / FR), Sb = dB(st.eS / FR);
       if (Cr >= o.gate){ st.ref = st.ref == null ? Cr : st.ref + (Cr - st.ref) * Math.max(0.0067, 1 / ++st.speechFrames); st.lastSpeech = tMs; }   // ~3 s of speech
       const lb = st.lowBase == null ? L : st.lowBase; st.lowBase = lb + (L - lb) * 0.04;   // ~0.5 s
       const talking = st.speechFrames >= 50 && tMs - st.lastSpeech < 5000;   // after 1 s of speech, and while someone is talking
-      const pop = talking && L - st.ref > o.popThr && L - Cr > -3 && L - lb > 10 ? L - st.ref : null;   // a sudden burst that dominates its own frame
+      // a pop is a sudden low burst (14 dB above the last half second) that dominates its own frame
+      const pop = talking && L - st.ref > o.popThr && L - Cr > 3 && L - lb > 14 ? L - st.ref : null;
       const sib = talking && Cr >= o.gate - 10 && Sb - st.ref > o.sibThr ? Sb - st.ref : null;
       // an event is reported as soon as it starts and is extended while it lasts; a repeat within 250 ms continues it
       for (const [kind, x] of [['pop', pop], ['sib', sib]]){
@@ -1501,6 +1510,14 @@ const fmtF = f => f >= 1000 ? (f / 1000).toFixed(f >= 10000 ? 1 : 2) + ' kHz' : 
 
 const COH_VIEWS = ['lane', 'overlay', 'mist', 'fade', 'off'];
 const COH_LABEL = { lane: 'Lane', overlay: 'Overlay', mist: 'Mist', fade: 'Fade', off: 'Off' };
+// Voice and Levels pair up in all-panes mode: each shows the other underneath, instead of phase and magnitude
+const subView = () => P.layout === 'rta' ? null : P.topView === 'voice' ? 'lev' : P.topView === 'lev' ? 'voice' : null;
+function drawSub(){
+  const F = frame($('#cvSub')), keep = [S.hoverX, S.hoverF, S.levMap];
+  S.hoverX = S.hoverF = null; F.sub = true;   // the top plot's hover and drag state don't apply here
+  try { $('#roSub').textContent = subView() === 'lev' ? drawLevels(F) : drawVoice(F); }
+  finally { [S.hoverX, S.hoverF, S.levMap] = keep; }
+}
 function drawMag(){
   const F = frame($('#cvMag')), g = F.g, R = +P.magRange, step = R <= 10 ? 2 : R <= 20 ? 6 : 10;
   const mode = COH_VIEWS.includes(P.cohView) ? P.cohView : 'lane', T = S.tf, thr = +P.cohBlank, off = +P.magOffset;
@@ -2183,7 +2200,7 @@ function drawVoice(F){
   g.fillStyle = V.open ? C.ok : C.faint;
   g.fillText(V.open ? '● speech' : '○ waiting for speech', F.x0 + 8, F.y1 - 6);
   g.fillStyle = C.dim; g.fillText(`${V.secs.toFixed(0)} s collected`, F.x0 + 150, F.y1 - 6);
-  voicePanel(R, V, ok);
+  if (!F.sub) voicePanel(R, V, ok);
   if (S.hoverF != null && R){
     const i = VOICE_FC.reduce((b, v, j) => Math.abs(Math.log(v / S.hoverF)) < Math.abs(Math.log(VOICE_FC[b] / S.hoverF)) ? j : b, 0);
     return `${fmtHz(S.hoverF)}  ${R.S3[i].toFixed(1)} dBFS  ${R.D[i] >= 0 ? '+' : ''}${R.D[i].toFixed(1)} dB vs natural`;
@@ -2302,7 +2319,7 @@ function loop(now){
     if (analyze(Math.min(0.5, dtA))) S.dirty = true;
     S.lastAn = now;
   }
-  if (S.dirty){ drawTop(); drawPhase(); drawMag(); S.dirty = false; }
+  if (S.dirty){ drawTop(); if (subView()) drawSub(); else { drawPhase(); drawMag(); } S.dirty = false; }
   drawMeters(dt);
   monTick(now);
   requestAnimationFrame(loop);
@@ -2649,7 +2666,7 @@ const DECK_DEFAULTS = {
 // user layouts: { anchor: [4 ids], pages: { page: [32 ids] } }, only what differs from the defaults
 let DECKL = store.get('ca.deck', null) || {};
 const saveDeckL = () => { store.set('ca.deck', DECKL); deck.sigs = []; };
-const deckPage = () => P.layout === 'rta' && DECK_PAGES.includes(P.topView) ? P.topView : 'all';
+const deckPage = () => (P.layout === 'rta' || subView()) && DECK_PAGES.includes(P.topView) ? P.topView : 'all';
 function deckSlots(page){
   const s = (DECKL.pages && DECKL.pages[page] || DECK_DEFAULTS[page] || DECK_DEFAULTS.all).slice(), a = DECKL.anchor || DECK_ANCHOR;
   for (let r = 0; r < 4; r++) s[r * 8] = a[r] ?? null;
@@ -2868,6 +2885,8 @@ function syncUI(){
   $('#daytonGet').hidden = P.micModel !== 'dayton';
   $('#otherGet').hidden = P.micModel !== 'other';
   document.querySelector('.app').classList.toggle('rta', P.layout === 'rta');
+  const subOn = subView() != null; document.querySelector('.app').classList.toggle('subon', subOn); $('#subPane').hidden = !subOn;
+  if (subOn) $('#subTitle').textContent = TOP_NAMES[subView()];
   document.querySelector('.app').classList.toggle('nside', !!P.sideHidden);
   $('#sideToggle').setAttribute('aria-pressed', String(!P.sideHidden));
   $('#cohBtnLbl').textContent = COH_LABEL[P.cohView] || 'Lane';
