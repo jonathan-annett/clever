@@ -110,6 +110,10 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .calinfo b{color:var(--fg);font-weight:500}
 #calPlot{width:100%;height:64px;display:block;background:var(--bg);border-radius:4px}
 #spkPlot{width:100%;height:110px;display:block;background:var(--bg);border-radius:4px}
+#tgPlot{width:100%;height:90px;display:block;background:var(--bg);border-radius:4px}
+.tgpts{display:grid;grid-template-columns:1fr 1fr 28px;gap:4px;align-items:center}
+.tgpts input{padding:3px 5px;font-size:12px}
+.tgpts .x{background:none;border:0;color:var(--dim);cursor:pointer;font-size:15px}
 .fallback{border:1px dashed var(--accent);border-radius:4px;padding:8px;font-size:12px;color:var(--fg);line-height:1.45}
 .fallback a{color:var(--accent);word-break:break-all}
 .calprofs summary{padding:2px 0!important;font-size:11px!important}
@@ -346,6 +350,9 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
             <div class="row"><label for="stMax">Deepest cut (dB)</label><input type="number" id="stMax" data-st="maxCut" step="1"></div>
             <p class="note">Describe the channel EQ on your desk, and the Voice panel reduces everything it found to settings for these bands, worst problems first. The low cut is assumed to be set already. If the voice reaches clever after the channel EQ (a post-EQ solo), the settings are changes on top of what is already dialled in.</p>
           </div></details>
+          <div class="row"><label for="mmTarget">Mic target</label><select id="mmTarget"></select></div>
+          <div class="row"><label for="mmTau">Mic match average</label><select id="mmTau"><option value="5">5 s</option><option value="10">10 s</option><option value="30">30 s</option></select></div>
+          <details class="vrules"><summary>Target curves</summary><div id="tgEd" style="display:grid;gap:7px;margin-top:6px"></div></details>
           <div class="row"><label for="trModel">Transcript</label><select id="trModel"><option value="tiny">Small model (about 120 MB)</option><option value="base">Larger model (about 210 MB)</option></select></div>
           <div class="btns"><button class="btn" id="trBtn">Download and start transcript…</button></div>
           <p class="note" id="trNote">Experimental. Writes down what the talker says and highlights the words where a pop or sibilant was marked, so you can tap the word you heard and get the fix. The speech model is downloaded once and kept by the browser.</p>
@@ -420,6 +427,14 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
             <div class="row" style="grid-template-columns:auto 1fr"><label for="bandsCeil">Ceiling</label><input type="number" id="bandsCeil" step="5"></div>
           </div>
           <p class="note">Match the layout to your graphic EQ so each column is one fader. Custom takes the centre frequencies from your graphic's faceplate; "2k5" and "2.5k" both work. Floor and ceiling are in dBFS. Ignored bands are remembered by frequency.</p>
+          <details class="vrules"><summary>Graphic fit</summary><div style="display:grid;gap:7px;margin-top:6px">
+            <div class="row"><label for="gfitMode">Graphic type</label><select id="gfitMode"><option value="cq">Constant Q</option><option value="pq">Proportional Q</option></select></div>
+            <div class="row"><label for="gfitBoost">Boosts</label><select id="gfitBoost"><option value="0">Cut only</option><option value="1">Allow boosts</option></select></div>
+            <div class="row"><label for="gfitRange">Fader range</label><select id="gfitRange"><option value="6">±6 dB</option><option value="12">±12 dB</option><option value="15">±15 dB</option></select></div>
+            <div class="row"><label for="gfitAfter">Reference taken</label><select id="gfitAfter"><option value="1">After the graphic</option><option value="0">Before the graphic</option></select></div>
+            <div class="row"><label for="gfitTarget">Target curve</label><select id="gfitTarget"></select></div>
+            <p class="note">Fit graphic reads the transfer function (reference: the group or matrix output; measurement: the FOH mic) and suggests fader positions for the layout above, worst peaks first, matching how your graphic's bands overlap. With the reference taken after the graphic, the faders shown are where to set them, and the suggestion stays put while you do. Taken before the graphic, they are changes from where the faders are now, and the suggestion moves as you set them; press Hold first.</p>
+          </div></details>
           <p class="note">Below the silence gate (overall level in dBFS) nothing counts as hot, so the readout doesn't point at the noise floor. Press Set from noise while the room is quiet to put the gate 6 dB above it.</p>
         </div>
       </details>
@@ -517,8 +532,8 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
         <div class="phead">
           <div class="tabs" id="topTabs"><button data-v="rta">RTA</button><button data-v="spec">Spectrograph</button><button data-v="ir">Impulse</button><button data-v="lev">Levels</button><button data-v="bands">Bands</button><button data-v="voice">Voice</button></div>
           <span class="pctl" id="levCtl" hidden><button class="btn mini primary" id="levSet" title="Set the reference from the recent average (Enter)">Set ref</button><button class="btn mini" id="levClear">Clear</button><button class="btn mini" id="levMetricBtn" title="Change loudness method (M)">LUFS</button><button class="btn mini" id="levSrcBtn" title="Measure the mic or the reference input">Mic in ▸</button><button class="btn mini" id="levZoomBtn" title="Zoom: 60 s, 3 min, 10 min (− and =, or the mouse wheel)">60 s</button></span>
-          <span class="pctl" id="voiceCtl" hidden><button class="btn mini" id="voiceSrcBtn" title="Check the mic or the reference input">Ref in ▸</button><button class="btn mini" id="voiceResetBtn" title="Start a new measurement, e.g. for the next talker">New talker</button><button class="btn mini" id="voicePanelBtn">Suggestions</button></span>
-          <span class="pctl" id="bandsCtl" hidden><button class="btn mini" id="bandsSrcBtn" title="Measure the mic, the reference input or the solo channel">Mic in ▸</button><button class="btn mini" id="bandsWeightBtn" title="Z, A, C or N (room noise) weighting">Z ▸</button><button class="btn mini" id="bandPresetBtn" title="Change band layout">31-band ▸</button><button class="btn mini" id="bandsReset">Use all bands</button><span class="hint">Tap a label to ignore a band</span></span>
+          <span class="pctl" id="voiceCtl" hidden><button class="btn mini" id="voiceModeBtn" title="Listen to a talker, or measure the mic with the test speaker's pink noise">Talker ▸</button><button class="btn mini" id="voiceSrcBtn" title="Check the mic or the reference input">Ref in ▸</button><button class="btn mini" id="voiceResetBtn" title="Start a new measurement, e.g. for the next talker">New talker</button><button class="btn mini" id="voicePanelBtn">Suggestions</button></span>
+          <span class="pctl" id="bandsCtl" hidden><button class="btn mini" id="bandsSrcBtn" title="Measure the mic, the reference input or the solo channel">Mic in ▸</button><button class="btn mini" id="bandsWeightBtn" title="Z, A, C or N (room noise) weighting">Z ▸</button><button class="btn mini" id="bandPresetBtn" title="Change band layout">31-band ▸</button><button class="btn mini" id="bandsReset">Use all bands</button><button class="btn mini" id="gfitBtn" title="Suggest graphic EQ settings from the transfer function">Fit graphic</button><button class="btn mini" id="gfitHoldBtn" hidden title="Stop updating the suggestion while you set the faders">Hold</button><span class="hint">Tap a label to ignore a band</span></span>
           <span id="irInfo"></span><button class="btn" id="irApply" hidden style="padding:2px 8px;font-size:12px">Add to delay</button>
           <span class="ro" id="roTop"></span>
         </div>
@@ -990,7 +1005,65 @@ const DSP = (() => {
     for (let i = 0; i < N; i++) h[i] *= w[i];
     return h;
   }
-  return { fft, hann, prefix, cum, gccPhat, aWeight, cWeight, interpLog, parseCal, kWeight, voiceAnalyze, filterDb, VOICE_DEFAULTS, voiceCfg, voiceEvents, stripFit, STRIP_DEFAULTS, spkFit, firFromDb };
+  // a target curve from [frequency, dB] points: straight lines on a log-frequency axis, flat beyond the ends
+  function targetAt(pts, f){
+    if (!pts || !pts.length) return 0;
+    if (f <= pts[0][0]) return pts[0][1];
+    for (let i = 1; i < pts.length; i++) if (f <= pts[i][0]){ const [f0, d0] = pts[i - 1], [f1, d1] = pts[i]; return d0 + (d1 - d0) * Math.log(f / f0) / Math.log(f1 / f0); }
+    return pts[pts.length - 1][1];
+  }
+  /* Graphic EQ fit: fader positions for a graphic with centres `fc` that bring the measured response H (dB on the
+     grid f, weights w from coherence) to the target. Constant-Q bands keep their bandwidth at every setting;
+     proportional-Q bands are wide at small settings and narrow towards full travel. The level is the median over
+     200 Hz–5 kHz, so peaks are cut down to it; with boosts allowed, dips are lifted too. Peaks weigh more than dips
+     (worst problems first) and every fader move has a small cost, so faders that barely help stay at zero.
+     opts: { mode: 'cq'|'pq', boost, range, target: [[f, dB]…] } */
+  function graphicFit(fc, f, H, w, opts = {}){
+    const range = opts.range || 12, boost = !!opts.boost, pq = opts.mode === 'pq', nb = fc.length;
+    const bw = fc.map((c, i) => Math.log2(i < nb - 1 ? fc[i + 1] / c : c / fc[i - 1]));
+    const qcq = bw.map(b => Math.sqrt(Math.pow(2, b)) / (Math.pow(2, b) - 1));
+    const lo = Math.max(30, fc[0] / Math.pow(2, bw[0] / 2)), hi = Math.min(16000, fc[nb - 1] * Math.pow(2, bw[nb - 1] / 2));
+    // 1/24-octave working grid, 1/6-octave power smoothing of the measurement
+    const G = []; for (let x = lo; x <= hi; x *= Math.pow(2, 1 / 24)) G.push(x);
+    const Hs = G.map(x => { let e = 0, k = 0, ww = 0; for (let j = 0; j < f.length; j++){ if (!isFinite(H[j]) || !(w[j] > 0) || Math.abs(Math.log2(f[j] / x)) > 1 / 12) continue; e += w[j] * Math.pow(10, H[j] / 10); k += w[j]; ww++; } return k > 0 ? { v: 10 * Math.log10(e / k), w: k / ww } : null; });
+    const mid = []; G.forEach((x, i) => { if (Hs[i] && x >= 200 && x <= 5000) mid.push(Hs[i].v); });
+    if (mid.length < 5) return null;
+    mid.sort((a, b) => a - b); const ref = mid[mid.length >> 1];
+    const n = G.length, T = new Float64Array(n), W = new Float64Array(n);
+    for (let i = 0; i < n; i++){ if (!Hs[i]) continue; T[i] = targetAt(opts.target, G[i]) - (Hs[i].v - ref); W[i] = Hs[i].w * (1 + Math.pow(Math.max(0, -T[i]) / 4, 2)); }
+    const qOf = (b, g) => pq ? qcq[b] * Math.max(0.3, Math.min(1, Math.abs(g) / range)) : qcq[b];
+    const resp = (b, g) => { const r = new Float64Array(n); if (Math.abs(g) < 1e-6) return r; const flt = { type: 'bell', f: fc[b], g, q: qOf(b, g) }; for (let i = 0; i < n; i++) r[i] = filterDb(flt, G[i]); return r; };
+    const sumW = W.reduce((a, b) => a + b, 0), lam = 0.004 * sumW;
+    const gains = new Float64Array(nb), R = []; for (let b = 0; b < nb; b++) R.push(new Float64Array(n));
+    const C = new Float64Array(n);
+    const costWith = (b, r) => { let c = 0; for (let i = 0; i < n; i++){ if (!W[i]) continue; const d = C[i] - R[b][i] + r[i] - T[i]; c += W[i] * d * d; } return c; };
+    const gmin = -range, gmax = boost ? range : 0;
+    // start each fader near the correction wanted at its centre, then refine, worst band first each pass
+    const at = x => { let k = 0; for (let i = 0; i < n; i++) if (Math.abs(Math.log(G[i] / x)) < Math.abs(Math.log(G[k] / x))) k = i; return k; };
+    const ci = fc.map(at);
+    for (let b = 0; b < nb; b++){ if (fc[b] < lo || fc[b] > hi || !W[ci[b]]) continue; const g = Math.max(gmin, Math.min(gmax, Math.round(T[ci[b]] * 0.6 * 2) / 2)); if (g){ gains[b] = g; R[b] = resp(b, g); for (let i = 0; i < n; i++) C[i] += R[b][i]; } }
+    for (let pass = 0; pass < 10; pass++){
+      let moved = 0;
+      const order = Array.from({ length: nb }, (_, b) => b).sort((a, b) => Math.abs(C[ci[b]] - T[ci[b]]) * W[ci[b]] > Math.abs(C[ci[a]] - T[ci[a]]) * W[ci[a]] ? 1 : -1);
+      for (const b of order){
+        let best = gains[b], bestC = costWith(b, R[b]) + lam * gains[b] * gains[b], bestR = R[b];
+        for (const step of [3, 1, 0.5]){
+          for (const d of [-2, -1, 1, 2]){
+            const g = Math.max(gmin, Math.min(gmax, Math.round((best + d * step) * 2) / 2)); if (g === best) continue;
+            const r = resp(b, g), c = costWith(b, r) + lam * g * g;
+            if (c < bestC - 1e-9){ bestC = c; best = g; bestR = r; }
+          }
+        }
+        if (best !== gains[b]){ for (let i = 0; i < n; i++) C[i] += bestR[i] - R[b][i]; R[b] = bestR; moved += Math.abs(best - gains[b]); gains[b] = best; }
+      }
+      if (moved < 0.5) break;
+    }
+    const before = [], after = [];
+    for (let i = 0; i < n; i++) if (W[i]){ const e = Hs[i].v - ref - targetAt(opts.target, G[i]); before.push(e); after.push(e + C[i]); }
+    const rms = a => Math.sqrt(a.reduce((t, x) => t + x * x, 0) / (a.length || 1));
+    return { gains: Array.from(gains), q: Array.from(gains, (g, b) => qOf(b, g)), grid: G, measured: Hs.map(h => h ? h.v - ref : NaN), correction: Array.from(C), target: G.map(x => targetAt(opts.target, x)), rmsBefore: rms(before), rmsAfter: rms(after) };
+  }
+  return { fft, hann, prefix, cum, gccPhat, aWeight, cWeight, interpLog, parseCal, kWeight, voiceAnalyze, filterDb, VOICE_DEFAULTS, voiceCfg, voiceEvents, stripFit, STRIP_DEFAULTS, spkFit, firFromDb, targetAt, graphicFit };
 })();
 if (typeof module !== 'undefined') module.exports = DSP;
 </script>
@@ -1009,7 +1082,7 @@ const DEFAULTS = {
   genOn: false, genType: 'pink', genFreq: 1000, genLevel: -20,
   delayMs: 0,
   fftMode: 'mtw', avg: 8, smooth: 24, cohBlank: 0.5, cohView: 'lane', sideHidden: false, magRange: 20, magOffset: 0,
-  topView: 'rta', levMetric: 'lufs', levSpan: 1, levRange: 24, levRefWin: 10, levRef: {}, levSrc: 'meas', bandsSrc: 'meas', bandsWeight: 'Z', bandNoise: null, bandsFloor: -90, bandsCeil: -30, bandIgnore: [], bandIgnoreHz: null, bandPreset: 'iso31', bandCustom: '', bandTallySec: 10, bandGate: -60, thru: false, thruLevel: 0, refAux: false, monMode: 'off', monLevel: -20, voiceSrc: 'ref', voiceTau: 30, voiceGate: -50, voiceHpf: 3, voiceCfg: {}, trOn: false, trModel: 'tiny', trReady: '', strip: {}, dispView: 'voice', spk: null, spkOn: false, spkLift: 10, spkSmooth: 6, voicePanel: true, monOut: '', rtaBands: '3', rtaAvg: 'fast', rtaUnits: 'dbfs', rtaTop: 0, rtaSpan: 100, peakHold: true,
+  topView: 'rta', levMetric: 'lufs', levSpan: 1, levRange: 24, levRefWin: 10, levRef: {}, levSrc: 'meas', bandsSrc: 'meas', bandsWeight: 'Z', bandNoise: null, bandsFloor: -90, bandsCeil: -30, bandIgnore: [], bandIgnoreHz: null, bandPreset: 'iso31', bandCustom: '', bandTallySec: 10, bandGate: -60, thru: false, thruLevel: 0, refAux: false, monMode: 'off', monLevel: -20, voiceSrc: 'ref', voiceTau: 30, voiceGate: -50, voiceHpf: 3, voiceCfg: {}, trOn: false, trModel: 'tiny', trReady: '', strip: {}, dispView: 'voice', spk: null, spkOn: false, spkLift: 10, spkSmooth: 6, voiceMode: 'talk', mmTau: 10, mmTarget: 'flat', targets: [], gfitOn: false, gfitHold: false, gfitMode: 'cq', gfitBoost: false, gfitRange: 12, gfitAfter: true, gfitTarget: '', voicePanel: true, monOut: '', rtaBands: '3', rtaAvg: 'fast', rtaUnits: 'dbfs', rtaTop: 0, rtaSpan: 100, peakHold: true,
   specFloor: -110, specCeil: -40,
   serial: '', calAngle: '0', applyCal: true, splOffset: null, weight: 'A', timeW: 'fast', calRef: 94,
   micModel: 'umik', calActive: null, layout: null,
@@ -1516,7 +1589,7 @@ function analyze(dt){
     DSP.prefix(a.coh, a.cCoh, M); DSP.prefix(a.rta, a.cRta, M); DSP.prefix(a.rtaX, a.cRtaX, M); DSP.prefix(a.inst, a.cInst, M); DSP.prefix(a.instX, a.cInstX, M);
   }
   S.auxSpec = S.auxOn ? auxSpectrum() : null;
-  computeTF(); computeRTA(dt); computeSpecRow(); pushBandsRow(dt); pushVoice(dt); spkTick(dt);
+  computeTF(); computeRTA(dt); computeSpecRow(); pushBandsRow(dt); pushVoice(dt); spkTick(dt); mmTick(dt); gfitTick();
   if (P.topView === 'ir') computeIR();
   return true;
 }
@@ -1812,6 +1885,9 @@ function drawMag(){
       series(M, T.f, vals, yOf, C.bg, 5, { mask: keep });   // dark halo keeps the live line readable over anything behind it
       series(M, T.f, vals, yOf, C.live, 1.8, { mask: keep });
     }
+    // dashed: the response with the suggested graphic settings
+    const GF = P.gfitOn && S.gfit;
+    if (GF){ const lo = GF.grid[0], hi = GF.grid[GF.grid.length - 1]; g.setLineDash([6, 4]); series(M, T.f, vals.map((v, i) => T.f[i] < lo || T.f[i] > hi ? NaN : v + DSP.interpLog(GF.grid, GF.correction, T.f[i])), yOf, C.accent, 1.6, { mask: keep }); g.setLineDash([]); }
   }
   g.restore();
   hoverLine(F);
@@ -2198,6 +2274,19 @@ function bandsSetGateFromNoise(){
   if (!c) return;
   P.bandGate = Math.round(10 * Math.log10(e / c) + 6); changed(); toast(`Silence gate set to ${P.bandGate} ${bandsUnit()} (6 dB above the current noise). Noise profile saved for N weighting.`, 3500);
 }
+/* graphic fit: refreshed once a second from the transfer function while it's on and not held */
+function gfitTick(){
+  if (!P.gfitOn || P.gfitHold || !S.tf) return;
+  const now = performance.now(); if (now - (S.gfitT || 0) < 1000) return; S.gfitT = now;
+  const T = S.tf, w = Array.from(T.coh, (c, i) => isFinite(T.mag[i]) && c >= 0.5 ? c : 0), tg = P.gfitTarget ? targetById(P.gfitTarget) : null;
+  S.gfit = DSP.graphicFit(bandSet().fc, T.f, T.mag, w, { mode: P.gfitMode, boost: !!+P.gfitBoost, range: +P.gfitRange, target: tg && tg.pts });
+  S.dirty = true;
+}
+function gfitSummary(){
+  const G = S.gfit, moves = G ? G.gains.filter(v => v).length : 0;
+  if (!G) return 'graphic fit: needs a transfer function. Reference: the group or matrix output; measurement: the FOH mic; pink through the system.';
+  return `graphic fit · ${P.gfitMode === 'pq' ? 'proportional' : 'constant'} Q · ${+P.gfitBoost ? 'boosts allowed' : 'cut only'} · ${moves} fader${moves === 1 ? '' : 's'}${+P.gfitAfter ? '' : ' (changes from now)'} · error ${G.rmsBefore.toFixed(1)} → ${G.rmsAfter.toFixed(1)} dB${P.gfitHold ? ' · HELD' : ''}`;
+}
 const lastOpenAt = (rows, ign, gate) => bandsTotal(bandsVals(rows[rows.length - 1]), ign) >= gate;
 function bandsLayout(width){ const n = bandSet().n, rot = (width - 80) / n < 28; return { l: 46, r: 34, t: 8, b: 32 + (rot ? 40 : 20) }; }
 function drawBands(F){
@@ -2227,6 +2316,22 @@ function drawBands(F){
   }
   const paint = (list, color, alpha) => { g.fillStyle = color; g.globalAlpha = alpha; for (let k = 0; k < list.length; k += 3) g.fillRect(list[k], list[k + 1], list[k + 2], rowH); g.globalAlpha = 1; };
   paint(bars[0], C.live, 0.85); paint(bars[1], C.faint, 0.6); paint(bars[2], C.clip, 1);
+  // graphic fit: fader positions over the columns
+  const GF = P.gfitOn && S.gfit && S.gfit.gains.length === n ? S.gfit : null;
+  if (GF){
+    const rng = +P.gfitRange || 12, ym = (F.y0 + F.y1) / 2, sc = (F.y1 - F.y0) * 0.42 / rng, yg = v => ym - v * sc;
+    g.fillStyle = 'rgba(14,18,23,.78)'; g.fillRect(F.x0, F.y0, F.x1 - F.x0, F.y1 - F.y0);
+    g.strokeStyle = C.grid2; g.lineWidth = 1; g.beginPath(); g.moveTo(F.x0, Math.round(ym) + 0.5); g.lineTo(F.x1, Math.round(ym) + 0.5); g.stroke();
+    g.fillStyle = C.faint; g.font = `10px ${MONO}`; g.textAlign = 'left'; g.textBaseline = 'middle';
+    for (const v of [rng, rng / 2, -rng / 2, -rng]){ g.fillText((v > 0 ? '+' : '') + v, F.x0 + 3, yg(v)); g.strokeStyle = C.grid; g.beginPath(); g.moveTo(F.x0 + 24, Math.round(yg(v)) + 0.5); g.lineTo(F.x1, Math.round(yg(v)) + 0.5); g.stroke(); }
+    for (let i = 0; i < n; i++){
+      const cx = F.x0 + (i + 0.5) * colW, v = GF.gains[i], y = yg(v), cw = Math.max(6, colW * 0.62);
+      g.fillStyle = C.grid2; g.fillRect(cx - 1, yg(rng), 2, yg(-rng) - yg(rng));
+      if (v) { g.fillStyle = v < 0 ? C.accent : C.ok; g.globalAlpha = 0.35; g.fillRect(cx - cw / 4, Math.min(y, ym), cw / 2, Math.abs(y - ym)); g.globalAlpha = 1; }
+      g.fillStyle = v ? (v < 0 ? C.accent : C.ok) : C.dim; g.fillRect(cx - cw / 2, y - 4, cw, 8);
+      if (v){ g.fillStyle = C.fg; g.font = `${colW < 28 ? 9 : 11}px ${MONO}`; g.textAlign = 'center'; g.textBaseline = v < 0 ? 'top' : 'bottom'; g.fillText((v > 0 ? '+' : '') + v, cx, v < 0 ? y + 6 : y - 6); }
+    }
+  }
   g.restore();
   // tally: share of the last few seconds each band was the hot one
   const win = (+P.bandTallySec || 10) * 1000, counts = new Float64Array(n); let total = 0;
@@ -2258,7 +2363,7 @@ function drawBands(F){
   }
   // big readout: the band that has been hot most of the time is the fader to pull
   const lastOpen = rows.length && bandsTotal(bandsVals(rows[rows.length - 1]), ign) >= gate;
-  if (lead >= 0 && total >= 5 && lastOpen){
+  if (lead >= 0 && total >= 5 && lastOpen && !GF){
     const fr = counts[lead] / total, col = fr >= 0.6 ? C.clip : fr >= 0.35 ? C.accent : C.dim;
     const lab = bandLabel(B.fc[lead]), bw = 190, bh = 86, bx = F.x1 - bw - 10, by = F.y0 + 10;
     g.fillStyle = C.bg; g.globalAlpha = 0.82; g.fillRect(bx, by, bw, bh); g.globalAlpha = 1;
@@ -2274,6 +2379,7 @@ function drawBands(F){
     return `${bandLabel(B.fc[i])} Hz  ${isFinite(last[i]) ? last[i].toFixed(1) + ' ' + bandsUnit() : '—'}${total ? `  hot ${Math.round(counts[i] / total * 100)}%` : ''}${ign[i] ? '  (ignored)' : ''}`;
   }
   const lvl = last ? bandsTotal(last, ign) : null;
+  if (P.gfitOn) return gfitSummary();
   const soloOff = P.bandsSrc === 'aux' && !S.auxOn ? '  ·  solo channel not connected (Inputs › Other channel is a second input)' : '';
   return BANDS_SRC_LABEL[P.bandsSrc] + ' · ' + ((P.bandsWeight || 'Z') === 'N' ? (bandsWeightOn() ? 'noise-weighted (profile ' + new Date(P.bandNoise.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ')' : 'N: no noise profile for this input and layout, press Set from noise') : (P.bandsWeight || 'Z') + '-weighted') + ' · ' + (BAND_PRESETS[B.id] || {}).name + (lvl != null && isFinite(lvl) ? `  ·  level ${lvl.toFixed(1)} ${bandsUnit()} (gate ${gate})` : '') + soloOff + (hotNow >= 0 && last ? `  ·  hot ${bandLabel(B.fc[hotNow])} Hz` : '');
 }
@@ -2327,7 +2433,7 @@ function voiceCompute(L){
   if (S.voiceLast && V.secs >= VOICE_MIN_SECS){ voiceTrack(S.voiceLast); stripUpdate(L, V); }
   return S.voiceLast;
 }
-function voiceReset(){ S.strip = null; S.stripT = 0; for (const v of Object.values(VOICE)){ v.E.fill(0); v.secs = 0; v.count = 0; } S.voiceLast = null; S.dirty = true; S.voicePanelT = 0; VH.entries = []; VH.events = []; VH.paused = null; VH.sel = null; S.vdet = null; if (typeof TR !== 'undefined'){ TR.words = []; TR.skipped = 0; } }
+function voiceReset(){ mmReset(); S.strip = null; S.stripT = 0; for (const v of Object.values(VOICE)){ v.E.fill(0); v.secs = 0; v.count = 0; } S.voiceLast = null; S.dirty = true; S.voicePanelT = 0; VH.entries = []; VH.events = []; VH.paused = null; VH.sel = null; S.vdet = null; if (typeof TR !== 'undefined'){ TR.words = []; TR.skipped = 0; } }
 /* Suggestion history: each finding becomes an entry that appears after 2 s of steady presence and stays listed
    for VH_DWELL after it was last seen, in the order it first appeared, so the list changes slowly enough to act on
    while listening. Entries that drop out move to Earlier; momentary events (pops, sibilance) go on a timeline. */
@@ -2345,8 +2451,106 @@ function stripUpdate(L, V){
   S.strip = DSP.stripFit(VOICE_FC, L, S.voiceLast.D, { strip: stripCfg(), depth: c.depth, sib, prev: S.strip && S.strip.raw });
 }
 const STRIP_TYPE = { bell: 'Bell', lowshelf: 'Low shelf', highshelf: 'High shelf' };
+/* ---------------- Mic match: the mic in place, measured with the test speaker ----------------
+   The test speaker plays (corrected) pink noise into the vocal mic; the desk's channel (direct out, insert or solo)
+   comes back on the Measurement input. Mic channel ÷ generator, per 1/24 octave, power only (immune to the
+   drifting Bluetooth delay), averaged over P.mmTau seconds, then fitted to the chosen target curve with the same
+   channel-strip fit as the Voice check. The speaker's measured leftover error (from its Check) is taken out. */
+const TARGET_PRESETS = [
+  { id: 'flat', name: 'Flat to 8 kHz, gentle top', pts: [[20, 0], [8000, 0], [16000, -6]] },
+  { id: 'handheld', name: 'Handheld vocal', pts: [[20, 0], [200, 0], [300, -1.5], [500, 0], [8000, 0], [16000, -6]] },
+  { id: 'gooseneck', name: 'Lectern gooseneck', pts: [[20, 0], [8000, 0], [12000, -3], [16000, -7]] },
+  { id: 'headset', name: 'Headset', pts: [[20, 0], [150, 0], [250, -1], [5000, 0], [10000, -4], [16000, -9]] },
+  { id: 'lapel', name: 'Lapel', pts: [[20, 0], [2500, 0], [4000, 1], [8000, 0], [16000, -5]] },
+  { id: 'pa-flat', name: 'PA: flat', pts: [[20, 0], [20000, 0]] },
+  { id: 'pa-house', name: 'PA: gentle house curve', pts: [[20, 4], [100, 3], [1000, 0], [8000, -3], [16000, -6]] }
+];
+const allTargets = () => [...TARGET_PRESETS, ...(P.targets || [])];
+const targetById = id => allTargets().find(t => t.id === id) || null;
+const MM = { Em: new Float64Array(VOICE_FC.length), Er: new Float64Array(VOICE_FC.length), n: 0, secs: 0, res: null, strip: null, T: 0 };
+const curStrip = () => P.voiceMode === 'pink' ? MM.strip : S.strip;
+function mmReset(){ MM.Em.fill(0); MM.Er.fill(0); MM.n = 0; MM.secs = 0; MM.res = null; MM.strip = null; MM.T = 0; S.voicePanelT = 0; S.dirty = true; }
+function mmStatus(){
+  if (!S.running) return 'Start the analyzer.';
+  if (P.refDev !== 'gen') return 'Set Reference to the generator, and bring the mic channel from the desk into the Measurement input.';
+  if (!P.genOn) return 'Turn the generator on (pink noise).';
+  return null;
+}
+function mmTick(dt){
+  if (P.voiceMode !== 'pink' || mmStatus() || !S.accs.length) return;
+  const n = VOICE_FC.length, h = Math.pow(2, 1 / 48), nyq = S.fs / 2, cum = DSP.cum;
+  MM.n++; MM.secs += dt;
+  const al = Math.max(dt / (+P.mmTau || 10), 1 / MM.n);
+  for (let i = 0; i < n; i++){
+    const f = VOICE_FC[i]; if (f * h >= nyq) continue;
+    const a = accFor(f), k = f * a.N / S.fs, lo = f / h * a.N / S.fs, hi = f * h * a.N / S.fs;
+    const band = c => a.scale * (hi - lo < 1 ? (cum(c, k + 0.5, a.M) - cum(c, k - 0.5, a.M)) * (hi - lo) : cum(c, hi, a.M) - cum(c, lo, a.M));
+    MM.Em[i] += al * (band(a.cInst) - MM.Em[i]); MM.Er[i] += al * (band(a.cInstX) - MM.Er[i]);   // the desk channel: no mic calibration
+  }
+  const now = performance.now(); if (now - MM.T > 1000){ MM.T = now; mmCompute(); }
+}
+function mmCompute(){
+  const n = VOICE_FC.length, H = new Array(n);
+  // the corrected speaker's own leftover error, from its Check, taken out of the result
+  const dev = P.spkOn && P.spk && P.spk.check ? P.spk.check.dev : null;
+  const devAt = f => { if (!dev) return 0; let b = -1; for (let j = 0; j < SPK_FC.length; j++) if (dev[j] != null && (b < 0 || Math.abs(Math.log(SPK_FC[j] / f)) < Math.abs(Math.log(SPK_FC[b] / f)))) b = j; return b >= 0 && Math.abs(Math.log2(SPK_FC[b] / f)) < 0.2 ? dev[b] : 0; };
+  for (let i = 0; i < n; i++) H[i] = MM.Er[i] > 0 && MM.Em[i] > 0 ? 10 * Math.log10(MM.Em[i] / MM.Er[i]) - devAt(VOICE_FC[i]) : -120;
+  const E = H.map(v => Math.pow(10, v / 10)), H3 = new Array(n);
+  for (let i = 0; i < n; i++){ let e = 0, k = 0; for (let j = Math.max(0, i - 4); j <= Math.min(n - 1, i + 3); j++){ e += E[j]; k++; } H3[i] = 10 * Math.log10(e / k + 1e-30); }
+  const mid = []; for (let i = 0; i < n; i++) if (VOICE_FC[i] >= 300 && VOICE_FC[i] <= 3000) mid.push(H3[i]);
+  mid.sort((a, b) => a - b); const ref = mid[mid.length >> 1] || 0;
+  const tg = targetById(P.mmTarget) || TARGET_PRESETS[0], T = VOICE_FC.map(f => DSP.targetAt(tg.pts, f));
+  const D = H3.map((v, i) => v - ref - T[i]);
+  MM.res = { H: H.map(v => v - ref), H3: H3.map(v => v - ref), T, target: tg, ref };
+  if (MM.secs >= 3) MM.strip = DSP.stripFit(VOICE_FC, H.map(v => v - ref), D, { strip: stripCfg(), depth: 1, prev: MM.strip && MM.strip.raw });
+  S.voicePanelT = 0;
+}
+function drawMicMatch(F){
+  const g = F.g, R = MM.res, St = MM.strip, st = mmStatus();
+  const vals = R ? R.H3.filter((v, i) => VOICE_FC[i] > 80 && VOICE_FC[i] < 12000) : [];
+  const top = vals.length ? Math.ceil((Math.max(...vals, 6) + 3) / 6) * 6 : 12, bot = top - 36;
+  const yOf = v => F.y1 - (v - bot) / (top - bot) * (F.y1 - F.y0);
+  freqGrid(F); yGrid(F, bot, top, 6, v => (v > 0 ? '+' : '') + v.toFixed(0)); clip(F);
+  const cfg = stripCfg(); g.fillStyle = 'rgba(0,0,0,.3)'; g.fillRect(F.x0, F.y0, fx(F, cfg.loCut) - F.x0, F.y1 - F.y0);
+  if (R){
+    g.fillStyle = C.fg; g.globalAlpha = 0.07; g.beginPath();
+    VOICE_FC.forEach((f, i) => i ? g.lineTo(fx(F, f), yOf(R.T[i] + 3)) : g.moveTo(fx(F, f), yOf(R.T[i] + 3)));
+    for (let i = VOICE_FC.length - 1; i >= 0; i--) g.lineTo(fx(F, VOICE_FC[i]), yOf(R.T[i] - 3));
+    g.closePath(); g.fill(); g.globalAlpha = 1;
+    series(F, VOICE_FC, R.T, yOf, C.dim, 1, {});
+    g.globalAlpha = 0.4; series(F, VOICE_FC, R.H, yOf, C.live, 1); g.globalAlpha = 1;
+    series(F, VOICE_FC, R.H3, yOf, C.live, 2.2);
+    if (St && St.slots.some(Boolean)){
+      g.setLineDash([6, 4]); series(F, VOICE_FC, R.H3.map((v, i) => v + St.curve[i]), yOf, C.accent, 1.8); g.setLineDash([]);
+      St.slots.forEach((b, k) => { if (!b) return; const i = VOICE_FC.reduce((m, v, j) => Math.abs(Math.log(v / b.f)) < Math.abs(Math.log(VOICE_FC[m] / b.f)) ? j : m, 0); const cx = fx(F, b.f), cy = Math.max(F.y0 + 22, yOf(R.H3[i]) - 16); g.fillStyle = C.accent; g.beginPath(); g.arc(cx, cy, 9, 0, Math.PI * 2); g.fill(); g.fillStyle = '#111'; g.font = `700 11px ${MONO}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(String(k + 1), cx, cy + 0.5); });
+    }
+  }
+  hoverLine(F); g.restore();
+  g.font = `11px ${MONO}`; g.textAlign = 'left'; g.textBaseline = 'bottom'; g.fillStyle = st ? C.accent : C.dim;
+  g.fillText(st || `${MM.secs.toFixed(0)} s of pink averaged`, F.x0 + 8, F.y1 - 6);
+  if (!F.sub) mmPanel(F.panelEl || $('#voicePanel'), st);
+  if (S.hoverF != null && R){ const i = VOICE_FC.reduce((b, v, j) => Math.abs(Math.log(v / S.hoverF)) < Math.abs(Math.log(VOICE_FC[b] / S.hoverF)) ? j : b, 0); return `${fmtHz(S.hoverF)}  ${R.H3[i] >= 0 ? '+' : ''}${R.H3[i].toFixed(1)} dB  (target ${R.T[i].toFixed(1)})`; }
+  return 'mic match · measurement input ÷ generator · dB per 1/3 oct, relative';
+}
+function mmPanel(el, st){
+  if (!el) return;
+  const now = performance.now(); if (S.voicePanelT && now - (el._t || 0) < 500) return; el._t = now; S.voicePanelT = now;
+  const St = MM.strip, tg = targetById(P.mmTarget) || TARGET_PRESETS[0];
+  let h = `<div class="vp-top"><b>Mic match</b><span class="pctl"><button class="x" data-act="hide" aria-label="Hide">–</button></span></div>`;
+  h += `<p class="vp-note">Target: <b>${tg.name}</b></p>`;
+  if (st) h += `<p class="vp-warn">${st}</p>`;
+  if (!P.spkOn || !P.spk) h += '<p class="vp-warn">The test speaker correction is off, so its own response is part of this result.</p>';
+  else if (!P.spk.check) h += '<p class="vp-note">Tip: run Check under Test speaker once; its leftover error is then taken out here.</p>';
+  if (St){
+    h += `<div class="vp-strip"><div class="vp-sh">Channel strip<span>${St.slots.some(Boolean) ? `covers ${Math.round(St.covered * 100)}%` : 'nothing to cut'}</span></div>`;
+    for (const r of stripRows(St)) h += `<div class="vp-row${r.off ? ' off' : ''}${r.warn ? ' warn' : ''}">${r.num ? `<i>${r.num}</i>` : '<i class="c"></i>'}<span class="l">${r.lab}</span><b>${r.main}</b><b>${r.f || ''}</b><span>${r.sub}</span></div>`;
+    if (St.worst) h += `<p class="vp-note">Still ${St.worst.db.toFixed(1)} dB above the target at ${fmtHz(St.worst.f)}.</p>`;
+    h += '</div><p class="vp-note">Set these on the mic\'s channel. If the channel comes back after its EQ, the plot moves towards the target as you go and the bands drop to <i>not needed</i>.</p>';
+  } else if (!st) h += `<p class="vp-wait">Measuring… ${MM.secs.toFixed(0)} of 3 s</p>`;
+  el.innerHTML = h;
+}
 function stripRows(St){
-  const cfg = stripCfg(), R = S.voiceLast, hp = R && R.cuts.find(f => f.type === 'hpf');
+  const cfg = stripCfg(), R = P.voiceMode === 'pink' ? null : S.voiceLast, hp = R && R.cuts.find(f => f.type === 'hpf');
   const rows = [{ lab: 'Low cut', main: hp && hp.f > cfg.loCut ? `raise to ${hp.f} Hz` : `${cfg.loCut} Hz`, sub: hp && hp.f > cfg.loCut ? `set at ${cfg.loCut}` : 'as set', warn: !!(hp && hp.f > cfg.loCut) }];
   for (let i = 0; i < cfg.n; i++){
     const b = St && St.slots[i];
@@ -2511,6 +2715,7 @@ function voiceGateFromNoise(){
 const VOICE_MIN_SECS = 4;
 function fmtHz(f){ return f >= 1000 ? (+(f / 1000).toFixed(f >= 10000 ? 1 : 2)) + ' kHz' : Math.round(f) + ' Hz'; }
 function drawVoice(F){
+  if (P.voiceMode === 'pink') return drawMicMatch(F);
   const g = F.g, V = VOICE[voiceSrc()], ok = V.secs >= VOICE_MIN_SECS;
   const L = Array.from(V.E, e => 10 * Math.log10(e + 1e-20));
   const R = voiceCompute(L);
@@ -3109,6 +3314,7 @@ const ACT = {
   bandsGateDn: { name: 'Silence gate −3', group: 'Bands', k: () => onKey('GATE', '−3', P.bandGate + ' dB'), press: nudge('bandGate', -3, -120, 0) },
   bandsGateUp: { name: 'Silence gate +3', group: 'Bands', k: () => onKey('GATE', '+3', P.bandGate + ' dB'), press: nudge('bandGate', 3, -120, 0) },
   bandsLevel: { name: 'Bands overall level', group: 'Bands', k: () => { const L = bandsLeader(); return { top: 'LEVEL', main: L && isFinite(L.lvl) ? L.lvl.toFixed(1) : '--', sub: 'gate ' + P.bandGate, bg: L && L.open ? RD.bg : '#151a21', fg: RD.fg, fg2: C.dim }; } },
+  gfit: { name: 'Graphic fit on/off', group: 'Bands', k: () => onKey('GRAPHIC FIT', P.gfitOn ? (P.gfitHold ? 'HELD' : 'ON') : 'OFF', P.gfitOn && S.gfit ? S.gfit.rmsAfter.toFixed(1) + ' dB left' : 'from TF', !!P.gfitOn), press: () => $('#gfitBtn').click(), hold: () => { if (P.gfitOn) $('#gfitHoldBtn').click(); } },
   bandsPreset: { name: 'Band layout', group: 'Bands', k: () => onKey('LAYOUT', String(bandSet().n), 'bands'), press: () => $('#bandPresetBtn').click() },
   bandsTally: { name: 'Hot tally window', group: 'Bands', k: () => onKey('TALLY', P.bandTallySec + ' s', 'hot window'), press: () => { P.bandTallySec = +cyc([5, 10, 20], P.bandTallySec); changed(); } },
   bandsFloorDn: { name: 'Bands floor −5', group: 'Bands', k: () => onKey('FLOOR', '−5', P.bandsFloor + ' dB'), press: nudge('bandsFloor', -5, -140, 0) },
@@ -3130,7 +3336,7 @@ const ACT = {
   voiceDepth: { name: 'Voice cut depth', group: 'Voice', k: () => onKey('CUT DEPTH', Math.round(DSP.voiceCfg(P.voiceCfg).depth * 100) + '%', 'voice'), press: () => voiceCfgSet('depth', +cyc([1, 0.75, 0.5, 0.25], DSP.voiceCfg(P.voiceCfg).depth)) },
   voiceGate: { name: 'Voice gate from noise', group: 'Voice', k: () => onKey('SPEECH GATE', 'NOISE', P.voiceGate + ' dB'), press: voiceGateFromNoise },
   ...Object.fromEntries([0, 1, 2, 3].map(i => ['eq' + (i + 1), { name: 'Channel strip band ' + (i + 1), group: 'Voice', k: () => {
-    const St = S.strip, cfg = stripCfg(), b = St && St.slots[i];
+    const St = curStrip(), cfg = stripCfg(), b = St && St.slots[i];
     if (i >= cfg.n) return { top: 'EQ ' + (i + 1), main: '', sub: 'no band', bg: '#0b0e12', fg: C.faint, fg2: C.faint };
     if (!b) return { top: 'EQ ' + (i + 1), main: '—', sub: St ? 'not needed' : 'no result', bg: '#151a21', fg: C.faint, fg2: C.faint };
     const f = b.f >= 1000 ? (+(b.f / 1000).toFixed(2)) + 'k' : String(b.f);
@@ -3181,7 +3387,7 @@ const DECK_DEFAULTS = {
   bands: [null, null, null, null, null, null, null, null,
           'bandsHot', 'bandsIgnoreHot', 'bandsAll', 'bandsSrc', 'bandsWeight', 'bandsNoise', 'bandsLevel', 'meterSolo',
           'bandsPreset', 'bandsTally', 'bandsGateDn', 'bandsGateUp', 'bandsFloorDn', 'bandsFloorUp', 'bandsCeilDn', 'bandsCeilUp',
-          'spl', 'gen', 'genDn', 'genUp', null, 'leq', 'meterMeas', 'meterRef'],
+          'spl', 'gen', 'genDn', 'genUp', 'gfit', 'leq', 'meterMeas', 'meterRef'],
   voice: [null, null, null, null, null, null, null, null,
           'newTalker', 'voice', 'eq1', 'eq2', 'eq3', 'eq4', 'voicePause', 'meterSolo',
           'voiceSrc', 'voiceSens', 'voiceDepth', 'voiceGate', 'voiceTau', null, null, null,
@@ -3510,9 +3716,10 @@ function syncUI(){
   $('#layoutBtn').textContent = P.layout === 'rta' ? 'ALL PANES' : (TOP_NAMES[P.topView] || 'RTA').toUpperCase() + ' ONLY';
   $('#levCtl').hidden = P.topView !== 'lev'; $('#bandsCtl').hidden = P.topView !== 'bands'; $('#voiceCtl').hidden = P.topView !== 'voice';
   $('#voicePanel').hidden = P.topView !== 'voice' || !P.voicePanel; $('#voicePanelBtn').classList.toggle('on', !!P.voicePanel);
-  $('#voiceSrcBtn').textContent = ({ aux: 'Solo', ref: 'Ref in', meas: 'Mic in' })[voiceSrc()] + ' ▸';
+  $('#voiceSrcBtn').textContent = ({ aux: 'Solo', ref: 'Ref in', meas: 'Mic in' })[voiceSrc()] + ' ▸'; $('#voiceSrcBtn').hidden = P.voiceMode === 'pink';
+  $('#voiceModeBtn').textContent = (P.voiceMode === 'pink' ? 'Test speaker' : 'Talker') + ' ▸'; $('#voiceModeBtn').classList.toggle('on', P.voiceMode === 'pink'); $('#voiceResetBtn').textContent = P.voiceMode === 'pink' ? 'Restart' : 'New talker';
   $('#mtAux').hidden = !S.auxOn; $('#refAuxRow').hidden = P.refDev === 'gen';
-  ['voiceSrc', 'voiceTau', 'voiceGate', 'voiceHpf', 'trModel'].forEach(k => set(k, P[k]));
+  tgOptions($('#mmTarget'), false); ['voiceSrc', 'voiceTau', 'voiceGate', 'voiceHpf', 'trModel', 'mmTarget', 'mmTau'].forEach(k => set(k, P[k]));
   { const sc = stripCfg(); document.querySelectorAll('[data-st]').forEach(el => { if (document.activeElement !== el) el.value = String(sc[el.dataset.st]); }); }
   $('#trBtn').textContent = P.trOn ? (TR.state === 'loading' ? 'Loading… (press to cancel)' : 'Stop transcript') : P.trReady === P.trModel ? 'Start transcript' : 'Download and start transcript…';
   $('#trBtn').classList.toggle('on', !!P.trOn); trNote();
@@ -3528,6 +3735,8 @@ function syncUI(){
   $('#levSrcBtn').textContent = (P.levSrc === 'ref' ? 'Ref in' : 'Mic in') + ' ▸';
   $('#bandsSrcBtn').textContent = ({ meas: 'Mic in', ref: 'Ref in', aux: 'Solo' })[P.bandsSrc] + ' ▸';
   $('#bandsWeightBtn').textContent = (P.bandsWeight || 'Z') + '-wt ▸';
+  $('#gfitBtn').classList.toggle('on', !!P.gfitOn); $('#gfitHoldBtn').hidden = !P.gfitOn; $('#gfitHoldBtn').classList.toggle('on', !!P.gfitHold);
+  tgOptions($('#gfitTarget'), true); ['gfitMode', 'gfitRange', 'gfitTarget'].forEach(k => set(k, P[k])); set('gfitBoost', +P.gfitBoost ? '1' : '0'); set('gfitAfter', +P.gfitAfter || P.gfitAfter === true ? '1' : '0');
   ['levMetric', 'levSpan', 'levRange', 'levRefWin', 'bandsFloor', 'bandsCeil', 'bandPreset', 'bandCustom', 'bandTallySec', 'bandGate', 'levSrc', 'bandsSrc', 'bandsWeight', 'monMode', 'monLevel', 'thru', 'thruLevel', 'refAux'].forEach(k => set(k, P[k]));
   $('#bandCustomRow').hidden = P.bandPreset !== 'custom';
   $('#bandPresetBtn').textContent = (BAND_PRESETS[bandSet().id] || BAND_PRESETS.iso31).short + ' ▸';
@@ -3593,6 +3802,48 @@ bind('levSrc', 'levSrc');
 bind('voiceSrc', 'voiceSrc'); bind('voiceTau', 'voiceTau', { num: true }); bind('voiceGate', 'voiceGate', { num: true }); bind('voiceHpf', 'voiceHpf', { num: true });
 $('#voiceGateNoise').onclick = voiceGateFromNoise;
 $('#trBtn').onclick = trButton;
+/* target curves: presets by mic type plus the user's own (P.targets). Editing a preset makes a copy. */
+function tgOptions(sel, withFlat){
+  const v = sel.value; sel.innerHTML = '';
+  if (withFlat) sel.add(new Option('Flat', ''));
+  const og1 = document.createElement('optgroup'); og1.label = 'Presets'; TARGET_PRESETS.forEach(t => og1.append(new Option(t.name, t.id))); sel.append(og1);
+  if ((P.targets || []).length){ const og2 = document.createElement('optgroup'); og2.label = 'Yours'; P.targets.forEach(t => og2.append(new Option(t.name, t.id))); sel.append(og2); }
+  sel.value = v;
+}
+function tgEditable(){
+  const t = targetById(S.tgEdit || P.mmTarget) || TARGET_PRESETS[0];
+  if (P.targets.some(x => x.id === t.id)) return t;
+  const c = { id: 'u' + Date.now(), name: t.name + ' (mine)', pts: t.pts.map(p => p.slice()) };
+  P.targets = [...P.targets, c]; if (P.mmTarget === t.id) P.mmTarget = c.id; if (P.gfitTarget === t.id) P.gfitTarget = c.id; S.tgEdit = c.id; return c;
+}
+function tgSaved(){ save(); tgBuild(); syncUI(); mmCompute && MM.n && mmCompute(); S.gfitT = 0; S.dirty = true; }
+function tgBuild(){
+  const box = $('#tgEd'), t = targetById(S.tgEdit || P.mmTarget) || TARGET_PRESETS[0], mine = (P.targets || []).some(x => x.id === t.id);
+  box.innerHTML = `<div class="row"><label>Curve</label><select id="tgSel"></select></div><canvas id="tgPlot"></canvas>
+    <div class="row"><label>Name</label><input type="text" id="tgName" value="${t.name.replace(/"/g, '&quot;')}" ${mine ? '' : 'disabled'}></div>
+    <div class="tgpts"><span class="note">Hz</span><span class="note">dB</span><span></span>${t.pts.map((p, i) => `<input type="number" data-i="${i}" data-k="0" value="${p[0]}" step="10"><input type="number" data-i="${i}" data-k="1" value="${p[1]}" step="0.5"><button class="x" data-del="${i}" title="Remove point">×</button>`).join('')}</div>
+    <div class="btns"><button class="btn" id="tgAdd">Add point</button>${mine ? '<button class="btn" id="tgDel">Delete curve</button>' : ''}</div>
+    <p class="note">${mine ? 'Your curve.' : 'A preset: changing it makes your own copy.'} Points are joined by straight lines on the log-frequency axis and held flat beyond the ends. 0 dB is the level of the mid band.</p>`;
+  const sel = $('#tgSel'); tgOptions(sel, false); sel.value = t.id; sel.onchange = () => { S.tgEdit = sel.value; tgBuild(); };
+  box.querySelectorAll('.tgpts input').forEach(inp => inp.onchange = () => {
+    const v = parseFloat(inp.value); if (!isFinite(v)){ tgBuild(); return; }
+    const c = tgEditable(), i = +inp.dataset.i, k = +inp.dataset.k; c.pts[i][k] = k ? Math.max(-24, Math.min(24, v)) : Math.max(10, Math.min(24000, v));
+    c.pts.sort((a, b) => a[0] - b[0]); tgSaved();
+  });
+  box.querySelectorAll('[data-del]').forEach(b => b.onclick = () => { const c = tgEditable(); if (c.pts.length > 2){ c.pts.splice(+b.dataset.del, 1); tgSaved(); } });
+  $('#tgAdd').onclick = () => { const c = tgEditable(), last = c.pts[c.pts.length - 1]; c.pts.push([Math.min(20000, Math.round(last[0] * 1.5)), last[1]]); c.pts.sort((a, b) => a[0] - b[0]); tgSaved(); };
+  $('#tgName').onchange = e => { const c = tgEditable(); c.name = e.target.value.trim() || c.name; tgSaved(); };
+  const del = $('#tgDel'); if (del) del.onclick = () => { if (!confirm(`Delete the curve "${t.name}"?`)) return; P.targets = P.targets.filter(x => x.id !== t.id); if (P.mmTarget === t.id) P.mmTarget = 'flat'; if (P.gfitTarget === t.id) P.gfitTarget = ''; S.tgEdit = null; tgSaved(); };
+  // preview
+  const cv = $('#tgPlot'); if (cv.clientWidth){ const F = frame(cv, { l: 4, r: 4, t: 6, b: 14 }), g = F.g, y = v => F.y0 + (12 - v) / 24 * (F.y1 - F.y0);
+    g.strokeStyle = C.grid2; g.beginPath(); g.moveTo(F.x0, y(0) + 0.5); g.lineTo(F.x1, y(0) + 0.5); g.stroke();
+    g.fillStyle = C.faint; g.font = `9px ${MONO}`; g.textAlign = 'center'; g.textBaseline = 'top'; for (const f of [100, 1000, 10000]) g.fillText(f >= 1000 ? f / 1000 + 'k' : String(f), fx(F, f), F.y1 + 2);
+    g.strokeStyle = C.accent; g.lineWidth = 1.6; g.beginPath(); for (let x = F.x0; x <= F.x1; x += 2){ const v = DSP.targetAt(t.pts, xf(F, x)); x === F.x0 ? g.moveTo(x, y(v)) : g.lineTo(x, y(v)); } g.stroke();
+    g.fillStyle = C.accent; t.pts.forEach(p => { if (p[0] >= 20 && p[0] <= 20000){ g.beginPath(); g.arc(fx(F, p[0]), y(p[1]), 3, 0, 7); g.fill(); } }); }
+}
+document.querySelector('#tgEd').closest('details').addEventListener('toggle', e => { if (e.target.open) tgBuild(); });
+bind('mmTarget', 'mmTarget', { after: () => { S.tgEdit = null; MM.strip = null; if (MM.n) mmCompute(); if ($('#tgEd').closest('details').open) tgBuild(); } });
+bind('mmTau', 'mmTau', { num: true });
 document.querySelectorAll('[data-st]').forEach(el => el.addEventListener('change', () => {
   const k = el.dataset.st, v = el.tagName === 'SELECT' && k !== 'n' ? el.value : parseFloat(el.value);
   if (typeof v === 'number' && !isFinite(v)){ syncUI(); return; }
@@ -3662,6 +3913,10 @@ voiceRulesBuild(); voiceRulesSync();
 $('#voiceSens').onchange = e => voiceCfgSet('sens', +e.target.value);
 $('#voiceDepth').onchange = e => voiceCfgSet('depth', +e.target.value);
 $('#voiceResetBtn').onclick = () => { voiceReset(); toast('Voice check restarted'); };
+$('#gfitBtn').onclick = () => { P.gfitOn = !P.gfitOn; P.gfitHold = false; S.gfitT = 0; if (!P.gfitOn) S.gfit = null; changed(); };
+$('#gfitHoldBtn').onclick = () => { P.gfitHold = !P.gfitHold; S.gfitT = 0; changed(); };
+for (const [id, num] of [['gfitMode', false], ['gfitBoost', false], ['gfitRange', true], ['gfitAfter', false], ['gfitTarget', false]]) bind(id, id, { num, after: () => { S.gfitT = 0; if (P.gfitHold){ P.gfitHold = false; } } });
+$('#voiceModeBtn').onclick = () => { P.voiceMode = P.voiceMode === 'pink' ? 'talk' : 'pink'; mmReset(); changed(); };
 $('#voiceSrcBtn').onclick = () => { const order = (S.auxOn || P.refAux) ? ['aux', 'ref', 'meas'] : ['ref', 'meas']; P.voiceSrc = order[(order.indexOf(voiceSrc()) + 1) % order.length]; changed(); };
 $('#voicePanelBtn').onclick = () => { P.voicePanel = !P.voicePanel; changed(); };
 bind('monMode', 'monMode', { after: () => { if (P.monMode !== 'off' && !S.running) toast('Press Start to hear the monitor.'); monBuild(); } });
