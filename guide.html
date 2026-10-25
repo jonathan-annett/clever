@@ -475,6 +475,15 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
         <li><span>Make the first suggestion on the channel strip, usually the high-pass or the biggest cut. The dashed line shows what to expect. Press <span class="ui">New talker</span> to measure again with the change in place.</span></li>
         <li><span>Stop when the list says the voice looks clean, or when the cost warning appears. After that, moving the mic or coaching the talker does more than EQ.</span></li>
       </ol>
+      <h3>Measure a vocal mic in the room with a test speaker (experimental)</h3>
+      <p>A small speaker held where the talker's mouth will be lets you hear what the mic hears: the room, the lectern, the mic itself. Cheap speakers are far from flat, so first teach clever to correct yours.</p>
+      <ol class="steps">
+        <li><span>At home or anywhere quiet: choose the speaker as the <span class="ui">Output</span> device (Bluetooth is fine), set <span class="ui">Reference</span> to the generator, and put your calibrated measurement mic about half a metre in front of the speaker, on axis, away from walls and tables. Set the speaker's volume so pink noise at the generator level is well above the room.</span></li>
+        <li><span>Open <span class="ui">Test speaker</span> in the settings and press <span class="ui">Measure speaker</span>. It listens to the room for 2 seconds, plays pink noise for about 12, and builds a filter. The plot shows the speaker (blue), the correction (amber) and the expected result (green); the shaded ends are where the speaker can't play.</span></li>
+        <li><span>Press <span class="ui">Check</span> to measure again through the filter. The green line is then the real result, and a message says how flat it is. Within a few dB is plenty for this job.</span></li>
+        <li><span>At the venue: with <span class="ui">Correct the generator for this speaker</span> ticked, play pink noise and hold the speaker in front of the vocal mic. The desk channel (or the solo bus, on the measurement input or the Voice solo channel) now shows the mic in that spot: use the RTA, Bands or the transfer function against the generator. Keep the speaker's volume where it was when you measured, because cheap speakers change their tone with volume.</span></li>
+      </ol>
+      <p>Bluetooth adds a delay of a few hundred milliseconds that can wander, so press <span class="ui">Find delay</span> before a transfer function and treat its phase with suspicion; magnitude is fine. The filter only cuts, so the corrected noise is quieter than before: turn the speaker up rather than the generator. Measure again if you change speakers or move to a very different volume.</p>
       <h3>Keep a set under a noise limit</h3>
       <ol class="steps">
         <li><span>Calibrate the mic with a calibrator (section 4), then place it where the limit applies, usually front of house.</span></li>

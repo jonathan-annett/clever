@@ -109,6 +109,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .calinfo{font:12px var(--mono);color:var(--dim);line-height:1.5}
 .calinfo b{color:var(--fg);font-weight:500}
 #calPlot{width:100%;height:64px;display:block;background:var(--bg);border-radius:4px}
+#spkPlot{width:100%;height:110px;display:block;background:var(--bg);border-radius:4px}
 .fallback{border:1px dashed var(--accent);border-radius:4px;padding:8px;font-size:12px;color:var(--fg);line-height:1.45}
 .fallback a{color:var(--accent);word-break:break-all}
 .calprofs summary{padding:2px 0!important;font-size:11px!important}
@@ -307,6 +308,20 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
           <div class="row" id="genFreqRow"><label for="genFreq">Frequency</label><input type="number" id="genFreq" min="10" max="24000" step="1"></div>
           <div class="row"><label for="genLevel">Level <span class="readout" id="genLevelV"></span></label><input type="range" id="genLevel" min="-60" max="0" step="1"></div>
           <p class="note">Level is RMS in dBFS. The generator also feeds the reference channel when Reference is set to the internal loopback.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>Test speaker</summary>
+        <div class="body">
+          <p class="note">Turns a small speaker (a Bluetooth speaker is fine) into a roughly flat test source, so you can hold it in front of a vocal mic and measure that mic in the room. To set it up: choose the speaker as the Output device, set Reference to the generator, put your calibrated measurement mic about 0.5 m in front of it, on axis, away from walls, and press Measure. clever listens to the room for 2 s, plays pink noise for about 12 s, and builds a filter for the generator.</p>
+          <div class="btns"><button class="btn primary" id="spkMeas">Measure speaker</button><button class="btn" id="spkCheck">Check</button></div>
+          <canvas id="spkPlot"></canvas>
+          <div class="calinfo" id="spkInfo">Not measured yet.</div>
+          <label class="check"><input type="checkbox" id="spkOn">Correct the generator for this speaker</label>
+          <div class="row"><label for="spkLift">Correct up to</label><select id="spkLift"><option value="6">6 dB</option><option value="10">10 dB</option><option value="15">15 dB</option></select></div>
+          <div class="row"><label for="spkSmooth">Detail</label><select id="spkSmooth"><option value="3">1/3 octave</option><option value="6">1/6 octave</option><option value="12">1/12 octave</option></select></div>
+          <p class="note">The filter only cuts, so the corrected noise is quieter: turn the speaker up rather than the generator. Bluetooth adds 100–300 ms of delay that can drift, so find the delay again before reading phase; magnitude and the RTA are fine. Outside the usable range the speaker can't keep up and readings there mean little.</p>
         </div>
       </details>
 
@@ -935,7 +950,47 @@ const DSP = (() => {
     const speechCost = e0 > 0 ? -10 * Math.log10(e1 / e0) : 0;
     return { slots, n: st.n, speechCost, raw: bands.map(b => ({ ...b, q: b.q || Math.SQRT1_2 })), target: T, curve: C, covered: base > 0 ? Math.max(0, 1 - after / base) : 1, needed: base > 0.5, worst };
   }
-  return { fft, hann, prefix, cum, gccPhat, aWeight, cWeight, interpLog, parseCal, kWeight, voiceAnalyze, filterDb, VOICE_DEFAULTS, voiceCfg, voiceEvents, stripFit, STRIP_DEFAULTS };
+  /* Test speaker correction: turn a measured speaker into a roughly flat source.
+     H: speaker response per band (mic level − generator level, dB), valid: bands with the signal 10 dB clear of the
+     room noise. Smoothed (1/smooth octave), normalised to its 300 Hz–3 kHz median, then corrected inside the range
+     where the speaker is within `lift` dB of that level; outside it the correction rolls off at 24 dB/octave so the
+     speaker isn't pushed where it can't play. Normalised so the filter only cuts (no clipping); `drop` is how much
+     quieter the mid band gets. */
+  function spkFit(fc, H, valid, opts = {}){
+    const smooth = opts.smooth || 6, lift = opts.lift == null ? 10 : opts.lift, n = fc.length, half = 0.5 / smooth;
+    const Hs = new Float64Array(n).fill(NaN);
+    for (let i = 0; i < n; i++){ let e = 0, k = 0; for (let j = 0; j < n; j++){ if (!valid[j] || Math.abs(Math.log2(fc[j] / fc[i])) > half + 1e-9) continue; e += Math.pow(10, H[j] / 10); k++; } if (k) Hs[i] = 10 * Math.log10(e / k); }
+    const mid = []; for (let i = 0; i < n; i++) if (fc[i] >= 300 && fc[i] <= 3000 && isFinite(Hs[i])) mid.push(Hs[i]);
+    if (mid.length < 3) return null;
+    mid.sort((a, b) => a - b); const ref = mid[mid.length >> 1], Hn = Hs.map(v => v - ref);
+    // usable range: outward from 1 kHz while the speaker is within `lift` dB (a single bad band doesn't end it)
+    let c = 0; for (let i = 0; i < n; i++) if (Math.abs(Math.log(fc[i] / 1000)) < Math.abs(Math.log(fc[c] / 1000))) c = i;
+    const ok = i => isFinite(Hn[i]) && Hn[i] >= -lift;
+    let lo = c, hi = c;
+    for (let i = c - 1, miss = 0; i >= 0; i--){ if (ok(i)){ lo = i; miss = 0; } else if (++miss > 1) break; }
+    for (let i = c + 1, miss = 0; i < n; i++){ if (ok(i)){ hi = i; miss = 0; } else if (++miss > 1) break; }
+    const C = new Float64Array(n);
+    for (let i = lo; i <= hi; i++) C[i] = isFinite(Hn[i]) ? Math.max(-20, Math.min(lift, -Hn[i])) : NaN;
+    for (let i = lo; i <= hi; i++) if (!isFinite(C[i])){ let a = i - 1, b = i + 1; while (b <= hi && !isFinite(C[b])) b++; C[i] = b <= hi ? (C[a] + C[b]) / 2 : C[a]; }
+    for (let i = 0; i < lo; i++) C[i] = C[lo] - 24 * Math.log2(fc[lo] / fc[i]);
+    for (let i = hi + 1; i < n; i++) C[i] = C[hi] - 24 * Math.log2(fc[i] / fc[hi]);
+    let m = -Infinity; for (let i = lo; i <= hi; i++) m = Math.max(m, C[i]);
+    for (let i = 0; i < n; i++) C[i] -= m;
+    const pred = Array.from(Hn, (v, i) => i >= lo && i <= hi && isFinite(v) ? v + C[i] + m : NaN);
+    return { corr: Array.from(C), resp: Array.from(Hn), pred, usable: [fc[lo], fc[hi]], drop: m };
+  }
+  // linear-phase FIR with the magnitude `db` (on the log grid fc) for a ConvolverNode: frequency sampling, Hann window
+  function firFromDb(fc, db, N, fs){
+    const re = new Float64Array(N), im = new Float64Array(N), lf = fc.map(Math.log), last = fc.length - 1;
+    const at = f => { if (f <= fc[0]) return db[0]; if (f >= fc[last]) return db[last]; const x = Math.log(f); let i = 0; while (i < last - 1 && lf[i + 1] < x) i++; const t = (x - lf[i]) / (lf[i + 1] - lf[i]); return db[i] + (db[i + 1] - db[i]) * t; };
+    for (let k = 0; k <= N / 2; k++){ const g = Math.pow(10, at(k * fs / N) / 20); re[k] = g; if (k && k < N / 2) re[N - k] = g; }
+    fft(re, im, true);
+    const h = new Float32Array(N), w = hann(N).w;
+    for (let i = 0; i < N; i++) h[(i + N / 2) % N] = re[i] / N;
+    for (let i = 0; i < N; i++) h[i] *= w[i];
+    return h;
+  }
+  return { fft, hann, prefix, cum, gccPhat, aWeight, cWeight, interpLog, parseCal, kWeight, voiceAnalyze, filterDb, VOICE_DEFAULTS, voiceCfg, voiceEvents, stripFit, STRIP_DEFAULTS, spkFit, firFromDb };
 })();
 if (typeof module !== 'undefined') module.exports = DSP;
 </script>
@@ -954,7 +1009,7 @@ const DEFAULTS = {
   genOn: false, genType: 'pink', genFreq: 1000, genLevel: -20,
   delayMs: 0,
   fftMode: 'mtw', avg: 8, smooth: 24, cohBlank: 0.5, cohView: 'lane', sideHidden: false, magRange: 20, magOffset: 0,
-  topView: 'rta', levMetric: 'lufs', levSpan: 1, levRange: 24, levRefWin: 10, levRef: {}, levSrc: 'meas', bandsSrc: 'meas', bandsWeight: 'Z', bandNoise: null, bandsFloor: -90, bandsCeil: -30, bandIgnore: [], bandIgnoreHz: null, bandPreset: 'iso31', bandCustom: '', bandTallySec: 10, bandGate: -60, thru: false, thruLevel: 0, refAux: false, monMode: 'off', monLevel: -20, voiceSrc: 'ref', voiceTau: 30, voiceGate: -50, voiceHpf: 3, voiceCfg: {}, trOn: false, trModel: 'tiny', trReady: '', strip: {}, dispView: 'voice', voicePanel: true, monOut: '', rtaBands: '3', rtaAvg: 'fast', rtaUnits: 'dbfs', rtaTop: 0, rtaSpan: 100, peakHold: true,
+  topView: 'rta', levMetric: 'lufs', levSpan: 1, levRange: 24, levRefWin: 10, levRef: {}, levSrc: 'meas', bandsSrc: 'meas', bandsWeight: 'Z', bandNoise: null, bandsFloor: -90, bandsCeil: -30, bandIgnore: [], bandIgnoreHz: null, bandPreset: 'iso31', bandCustom: '', bandTallySec: 10, bandGate: -60, thru: false, thruLevel: 0, refAux: false, monMode: 'off', monLevel: -20, voiceSrc: 'ref', voiceTau: 30, voiceGate: -50, voiceHpf: 3, voiceCfg: {}, trOn: false, trModel: 'tiny', trReady: '', strip: {}, dispView: 'voice', spk: null, spkOn: false, spkLift: 10, spkSmooth: 6, voicePanel: true, monOut: '', rtaBands: '3', rtaAvg: 'fast', rtaUnits: 'dbfs', rtaTop: 0, rtaSpan: 100, peakHold: true,
   specFloor: -110, specCeil: -40,
   serial: '', calAngle: '0', applyCal: true, splOffset: null, weight: 'A', timeW: 'fast', calRef: 94,
   micModel: 'umik', calActive: null, layout: null,
@@ -1180,7 +1235,10 @@ async function start(){
     if (P.outDev && ctx.setSinkId){ try { await ctx.setSinkId(P.outDev); } catch (e) { toast('Could not switch output device; using default.'); } }
 
     const gen = new AudioWorkletNode(ctx, 'ca-gen', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [1] });
-    gen.connect(ctx.destination);
+    // to the output either directly or through the test-speaker correction; the reference always gets the plain signal
+    S.genDirect = ctx.createGain(); gen.connect(S.genDirect).connect(ctx.destination);
+    S.spkConv = ctx.createConvolver(); S.spkConv.normalize = false; S.spkGain = ctx.createGain(); S.spkGain.gain.value = 0;
+    gen.connect(S.spkConv).connect(S.spkGain).connect(ctx.destination);
     const cap = new AudioWorkletNode(ctx, 'ca-cap', { numberOfInputs: 3, numberOfOutputs: 1, outputChannelCount: [1], channelCount: 1, channelCountMode: 'explicit', channelInterpretation: 'discrete' });
     const sink = ctx.createGain(); sink.gain.value = 0; cap.connect(sink).connect(ctx.destination);
 
@@ -1218,6 +1276,7 @@ async function start(){
 
     cap.port.onmessage = onAudio;
     S.gen = gen; S.cap = cap;
+    spkRebuild();
     thruApply(true);
     if (ctx.state === 'suspended') { try { await ctx.resume(); } catch {} }
     sendGen();
@@ -1254,7 +1313,7 @@ async function stop(quiet){
   keepAwake(false);
   S.streams.forEach(st => st.getTracks().forEach(t => t.stop())); S.streams = [];
   if (S.ctx){ try { await S.ctx.close(); } catch {} }
-  S.ctx = S.gen = S.cap = null;
+  S.ctx = S.gen = S.cap = null; S.spkConv = S.spkGain = S.genDirect = null; S.spkM = null;
   if (!quiet) syncUI();
 }
 async function restart(){ if (S.running){ await stop(true); await start(); } }
@@ -1457,7 +1516,7 @@ function analyze(dt){
     DSP.prefix(a.coh, a.cCoh, M); DSP.prefix(a.rta, a.cRta, M); DSP.prefix(a.rtaX, a.cRtaX, M); DSP.prefix(a.inst, a.cInst, M); DSP.prefix(a.instX, a.cInstX, M);
   }
   S.auxSpec = S.auxOn ? auxSpectrum() : null;
-  computeTF(); computeRTA(dt); computeSpecRow(); pushBandsRow(dt); pushVoice(dt);
+  computeTF(); computeRTA(dt); computeSpecRow(); pushBandsRow(dt); pushVoice(dt); spkTick(dt);
   if (P.topView === 'ir') computeIR();
   return true;
 }
@@ -2751,6 +2810,125 @@ function readCalFile(file){
   r.readAsText(file);
 }
 
+/* ---------------- Test speaker correction ----------------
+   Measure: 2 s of room noise with the generator off, then pink noise for 12 s (after 1.5 s for Bluetooth latency
+   and the speaker's own processing to settle). Per 1/12-octave band, response = mic level (calibrated) − generator
+   level, kept where it is 10 dB above the noise. DSP.spkFit makes the correction and DSP.firFromDb the filter,
+   which sits between the generator and the output only; the reference keeps the plain signal, so a transfer
+   function against it measures what the corrected speaker feeds into (the mic under test). */
+const SPK_FC = []; for (let k = -52; k <= 51; k++) SPK_FC.push(1000 * Math.pow(2, k / 12));   // 20 Hz to 19 kHz
+const spkFitNow = () => P.spk ? DSP.spkFit(SPK_FC, P.spk.H, P.spk.valid, { smooth: +P.spkSmooth, lift: +P.spkLift }) : null;
+const spkActive = () => !!(P.spkOn && P.spk && S.spkFit);
+function spkRebuild(){
+  S.spkFit = spkFitNow();
+  if (S.ctx && S.spkConv && S.spkFit){
+    const N = S.fs >= 88200 ? 16384 : 8192, h = DSP.firFromDb(SPK_FC, S.spkFit.corr, N, S.fs), b = S.ctx.createBuffer(1, N, S.fs);
+    b.copyToChannel(h, 0); S.spkConv.buffer = b;
+  }
+  spkApply();
+}
+function spkApply(){
+  if (!S.genDirect) return;
+  const on = spkActive() && !!S.spkConv.buffer, t = S.ctx.currentTime;
+  S.genDirect.gain.setTargetAtTime(on ? 0 : 1, t, 0.02); S.spkGain.gain.setTargetAtTime(on ? 1 : 0, t, 0.02);
+}
+function spkBands(meas){
+  const n = SPK_FC.length, h = Math.pow(2, 1 / 24), nyq = S.fs / 2, cum = DSP.cum, out = new Float64Array(n);
+  for (let i = 0; i < n; i++){
+    const f = SPK_FC[i]; if (f * h >= nyq) continue;
+    const a = accFor(f), c = meas ? a.cInst : a.cInstX, k = f * a.N / S.fs, lo = f / h * a.N / S.fs, hi = f * h * a.N / S.fs;
+    const p = hi - lo < 1 ? (cum(c, k + 0.5, a.M) - cum(c, k - 0.5, a.M)) * (hi - lo) : cum(c, hi, a.M) - cum(c, lo, a.M);
+    out[i] = a.scale * p * (meas ? Math.pow(10, -calAt(f) / 10) : 1);
+  }
+  return out;
+}
+function spkStart(mode){
+  if (S.spkM){ spkEnd('Stopped.'); return; }
+  if (!S.running){ toast('Start the analyzer first.'); return; }
+  if (P.refDev !== 'gen'){ toast('Set Reference to the generator (internal loopback) first.', 4000); return; }
+  if (mode === 'check' && !P.spk){ toast('Measure the speaker first.'); return; }
+  if (thruActive()){ toast('Turn off pass-through first.'); return; }
+  S.spkM = { mode, t: 0, phase: 'quiet', saved: { genOn: P.genOn, genType: P.genType, spkOn: P.spkOn }, noise: new Float64Array(SPK_FC.length), meas: new Float64Array(SPK_FC.length), ref: new Float64Array(SPK_FC.length), nN: 0, nS: 0 };
+  P.genOn = false; P.genType = 'pink'; P.spkOn = mode === 'check'; sendGen(); spkApply(); syncUI();
+}
+function spkTick(dt){
+  const M = S.spkM; if (!M) return;
+  M.t += dt;
+  if (M.phase === 'quiet'){ if (M.t > 0.8){ const b = spkBands(true); for (let i = 0; i < b.length; i++) M.noise[i] += b[i]; M.nN++; } if (M.t > 2.8){ M.phase = 'settle'; M.t = 0; P.genOn = true; sendGen(); syncUI(); } }
+  else if (M.phase === 'settle'){ if (M.t > 1.5){ M.phase = 'sig'; M.t = 0; } }
+  else if (M.phase === 'sig'){
+    const bm = spkBands(true), br = spkBands(false);
+    for (let i = 0; i < bm.length; i++){ M.meas[i] += bm[i]; M.ref[i] += br[i]; } M.nS++;
+    if (M.t > 12) spkFinish();
+  }
+  spkUI();
+}
+function spkFinish(){
+  const M = S.spkM, n = SPK_FC.length, H = new Array(n), valid = new Array(n);
+  for (let i = 0; i < n; i++){
+    const m = M.meas[i] / M.nS, r = M.ref[i] / M.nS, nz = M.noise[i] / Math.max(1, M.nN);
+    H[i] = +(10 * Math.log10((m + 1e-30) / (r + 1e-30))).toFixed(2);
+    valid[i] = r > 0 && m > 0 && 10 * Math.log10(m / (nz + 1e-30)) >= 10;
+  }
+  if (M.mode === 'measure'){
+    P.spk = { t: Date.now(), H, valid, cal: CAL ? calLabel(CAL) : null };
+    const R = DSP.spkFit(SPK_FC, H, valid, { smooth: +P.spkSmooth, lift: +P.spkLift });
+    if (!R){ spkEnd('The speaker was too quiet against the room. Turn it up and measure again.'); return; }
+    M.saved.spkOn = true; spkEnd(`Measured. Usable ${fmtHz(R.usable[0])} to ${fmtHz(R.usable[1])}; correction on.`);
+  } else {
+    // check: the corrected speaker's response in the usable range, relative to its own mid-band level
+    const R = S.spkFit, dev = [], mid = [];
+    for (let i = 0; i < n; i++){ const f = SPK_FC[i]; if (valid[i] && f >= 300 && f <= 3000) mid.push(H[i]); }
+    mid.sort((a, b) => a - b); const ref = mid.length ? mid[mid.length >> 1] : 0;
+    for (let i = 0; i < n; i++) dev.push(valid[i] && SPK_FC[i] >= R.usable[0] && SPK_FC[i] <= R.usable[1] ? +(H[i] - ref).toFixed(2) : null);
+    P.spk = { ...P.spk, check: { t: Date.now(), dev } };
+    const d = dev.filter(v => v != null), sm = d.slice().sort((a, b) => a - b), p5 = sm[Math.floor(sm.length * 0.05)], p95 = sm[Math.floor(sm.length * 0.95)];
+    spkEnd(d.length ? `Checked: within ${p5.toFixed(1)} / +${p95.toFixed(1)} dB over the usable range (90% of bands).` : 'Check failed: too quiet against the room.');
+  }
+}
+function spkEnd(msg){
+  const M = S.spkM; S.spkM = null;
+  if (M){ P.genOn = M.saved.genOn; P.genType = M.saved.genType; P.spkOn = M.saved.spkOn; }
+  save(); spkRebuild(); sendGen(); syncUI(); spkUI(); if (msg) toast(msg, 4500);
+}
+function spkUI(){
+  const M = S.spkM, R = S.spkFit || spkFitNow();
+  $('#spkMeas').textContent = M && M.mode === 'measure' ? spkPhaseText(M) + ' (stop)' : 'Measure speaker';
+  $('#spkCheck').textContent = M && M.mode === 'check' ? spkPhaseText(M) + ' (stop)' : 'Check';
+  const el = $('#spkInfo');
+  if (!P.spk) el.textContent = 'Not measured yet.';
+  else if (!R) el.textContent = 'The last measurement was too quiet to use.';
+  else {
+    const c = P.spk.check;
+    el.innerHTML = `Usable <b>${fmtHz(R.usable[0])}</b> to <b>${fmtHz(R.usable[1])}</b><br>Correction makes the noise <b>${R.drop.toFixed(1)} dB</b> quieter in the mid band<br>Measured ${new Date(P.spk.t).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}${P.spk.cal ? ' with ' + P.spk.cal : ', no mic calibration'}${c ? `<br>Last check ${new Date(c.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}`;
+  }
+  drawSpkPlot(R);
+}
+const spkPhaseText = M => M.phase === 'quiet' ? 'Listening to the room…' : M.phase === 'settle' ? 'Starting noise…' : `Measuring ${Math.max(0, 12 - M.t).toFixed(0)} s`;
+function drawSpkPlot(R){
+  const cv = $('#spkPlot'); if (!cv || !cv.clientWidth) return;
+  const F = frame(cv, { l: 4, r: 4, t: 6, b: 14 }), g = F.g, top = 15, bot = -21, x = f => fx(F, f), y = v => F.y0 + (top - v) / (top - bot) * (F.y1 - F.y0);
+  g.strokeStyle = C.grid; g.lineWidth = 1;
+  for (const v of [12, 6, 0, -6, -12, -18]){ g.beginPath(); g.moveTo(F.x0, Math.round(y(v)) + 0.5); g.lineTo(F.x1, Math.round(y(v)) + 0.5); g.strokeStyle = v === 0 ? C.grid2 : C.grid; g.stroke(); }
+  g.fillStyle = C.faint; g.font = `9px ${MONO}`; g.textBaseline = 'top'; g.textAlign = 'center';
+  for (const f of [100, 1000, 10000]) g.fillText(f >= 1000 ? f / 1000 + 'k' : String(f), x(f), F.y1 + 2);
+  if (!R) return;
+  g.fillStyle = 'rgba(0,0,0,.35)'; g.fillRect(F.x0, F.y0, x(R.usable[0]) - F.x0, F.y1 - F.y0); g.fillRect(x(R.usable[1]), F.y0, F.x1 - x(R.usable[1]), F.y1 - F.y0);
+  const line = (vals, col, w, dash) => { g.strokeStyle = col; g.lineWidth = w; g.setLineDash(dash || []); g.beginPath(); let pen = false; SPK_FC.forEach((f, i) => { const v = vals[i]; if (v == null || !isFinite(v)){ pen = false; return; } const px = x(f), py = y(Math.max(bot, Math.min(top, v))); pen ? g.lineTo(px, py) : g.moveTo(px, py); pen = true; }); g.stroke(); g.setLineDash([]); };
+  line(R.resp, C.live, 1.4);
+  line(R.corr.map(v => v + R.drop), C.accent, 1.2, [4, 3]);
+  line(P.spk.check ? P.spk.check.dev : R.pred, C.ok, 1.6);
+  g.textAlign = 'left'; g.font = `9px ${MONO}`;
+  g.fillStyle = C.live; g.fillText('speaker', F.x0 + 4, F.y0); g.fillStyle = C.accent; g.fillText('correction', F.x0 + 54, F.y0); g.fillStyle = C.ok; g.fillText(P.spk.check ? 'checked' : 'expected', F.x0 + 122, F.y0);
+}
+$('#spkMeas').onclick = () => spkStart('measure');
+$('#spkCheck').onclick = () => spkStart('check');
+bind('spkOn', 'spkOn', { after: () => { if (P.spkOn && !P.spk){ P.spkOn = false; save(); toast('Measure the speaker first.'); } spkApply(); } });
+bind('spkLift', 'spkLift', { num: true, after: () => { if (P.spk) delete P.spk.check; spkRebuild(); spkUI(); } });
+bind('spkSmooth', 'spkSmooth', { num: true, after: () => { if (P.spk) delete P.spk.check; spkRebuild(); spkUI(); } });
+document.querySelectorAll('.side details').forEach(d => d.addEventListener('toggle', () => { if (d.open && d.contains($('#spkPlot'))) spkUI(); }));
+S.spkFit = spkFitNow();
+
 /* ---------------- traces ---------------- */
 function saveTraces(){
   store.set('ca.traces', TRACES.map(t => ({ ...t, f: Array.from(t.f, v => +v.toFixed(2)), mag: Array.from(t.mag, v => isFinite(v) ? +v.toFixed(2) : null), ph: t.ph ? Array.from(t.ph, v => isFinite(v) ? +v.toFixed(1) : null) : null, coh: t.coh ? Array.from(t.coh, v => +(+v).toFixed(3)) : null })));
@@ -2876,6 +3054,7 @@ const ACT = {
   // generator
   genDn: { name: 'Generator level −2', group: 'Generator', k: () => onKey('LEVEL', '−2', P.genLevel + ' dBFS'), press: () => { P.genLevel = Math.max(-60, P.genLevel - 2); changed(); sendGen(); } },
   genUp: { name: 'Generator level +2', group: 'Generator', k: () => onKey('LEVEL', '+2', P.genLevel + ' dBFS'), press: () => { P.genLevel = Math.min(0, P.genLevel + 2); changed(); sendGen(); } },
+  spkEq: { name: 'Test speaker correction on/off', group: 'Generator', k: () => onKey('SPEAKER EQ', !P.spk ? '—' : P.spkOn ? 'ON' : 'OFF', P.spk ? 'test speaker' : 'not measured', spkActive()), press: () => { if (!P.spk){ toast('Measure the test speaker first.'); return; } P.spkOn = !P.spkOn; spkApply(); changed(); } },
   toneDn: { name: 'Tone frequency −1/3 oct', group: 'Generator', k: () => onKey('TONE', '−⅓', fmtF(+P.genFreq)), press: () => { P.genFreq = Math.max(20, Math.round(P.genFreq / Math.pow(2, 1 / 3))); changed(); sendGen(); } },
   toneUp: { name: 'Tone frequency +1/3 oct', group: 'Generator', k: () => onKey('TONE', '+⅓', fmtF(+P.genFreq)), press: () => { P.genFreq = Math.min(20000, Math.round(P.genFreq * Math.pow(2, 1 / 3))); changed(); sendGen(); } },
   // delay
@@ -3309,7 +3488,7 @@ function centerTrace(){
 function syncUI(){
   const set = (id, v) => { const el = $('#' + id); if (!el || document.activeElement === el) return; if (el.type === 'checkbox') el.checked = !!v; else el.value = v; };
   ['measCh', 'refCh', 'fs', 'genType', 'genFreq', 'genLevel', 'fftMode', 'avg', 'smooth', 'cohBlank', 'magRange', 'magOffset', 'rtaBands', 'rtaAvg', 'rtaUnits', 'rtaTop', 'rtaSpan', 'specFloor', 'specCeil', 'serial', 'calAngle', 'weight', 'timeW', 'calRef', 'deckBright'].forEach(k => set(k, P[k]));
-  ['polarity', 'peakHold', 'applyCal', 'showConsole'].forEach(k => set(k, P[k]));
+  ['polarity', 'peakHold', 'applyCal', 'showConsole', 'spkOn'].forEach(k => set(k, P[k])); set('spkLift', P.spkLift); set('spkSmooth', P.spkSmooth);
   set('delayMs', P.delayMs.toFixed(2));
   set('splOffset', splOffset().toFixed(1));
   const who = CAL ? `${MODEL_LABEL[CAL.model] || 'this mic'}` : 'no mic profile';
@@ -3359,7 +3538,7 @@ function syncUI(){
   $('#genFreqRow').hidden = P.genType !== 'sine';
   $('#refChRow').hidden = P.refDev === 'gen';
   $('#genOn').textContent = P.genOn ? 'On' : 'Off'; $('#genOn').classList.toggle('on', !!P.genOn);
-  $('#topGen').textContent = 'GEN ' + (P.genOn ? P.genType.toUpperCase() + ' ' + P.genLevel : 'OFF'); $('#topGen').classList.toggle('on', !!P.genOn);
+  $('#topGen').textContent = 'GEN ' + (P.genOn ? P.genType.toUpperCase() + ' ' + P.genLevel + (spkActive() ? ' EQ' : '') : 'OFF'); $('#topGen').classList.toggle('on', !!P.genOn);
   $('#runBtn').textContent = S.starting ? 'Starting…' : S.running ? 'Stop' : 'Start'; $('#runBtn').classList.toggle('on', S.running);
   $('#brand').classList.toggle('on', S.running);
   $('#idle1').hidden = S.running || (P.topView === 'lev' && LEV.n > 0) || (P.topView === 'bands' && BANDS.rows.length > 0) || (P.topView === 'voice' && VOICE[voiceSrc()].count > 0);

@@ -7,7 +7,7 @@ A browser-based real-time audio analyzer for live sound: RTA, spectrograph, dual
 ## Features
 
 - Multi-time-window FFT transfer function with averaging, fractional-octave smoothing, coherence blanking and a choice of coherence displays (lane, overlay, mist, fade)
-- Built-in pink, white and sine generator, usable as an internal loopback reference or with an external reference input
+- Built-in pink, white and sine generator, usable as an internal loopback reference or with an external reference input, with an optional correction filter that turns a cheap (even Bluetooth) speaker into a roughly flat test source for measuring mics in place
 - Automatic delay finder (GCC-PHAT) plus an impulse view for fine adjustment
 - RTA from 1/1 to 1/24 octave, spectrograph, and A/C/Z SPL meter with Leq
 - Levels: 10 minutes of loudness history in short-term LUFS (ITU-R BS.1770), 3 s Leq or RMS, opening at a 60 s view with 5 s and 60 s peak-to-mean boxes, a reference line and a drift readout for keeping a feed consistent

@@ -1,6 +1,6 @@
 // clever service worker: network first, cache fallback, so updates arrive
 // when online and the app still opens at a venue with no signal.
-const CACHE = 'clever-v34';
+const CACHE = 'clever-v35';
 // the transcript's library is versioned on jsDelivr, so it is cached once and kept across app updates
 const LIB = 'clever-lib';
 const SHELL = ['./', 'guide.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
