@@ -943,10 +943,24 @@ if (typeof module !== 'undefined') module.exports = DSP;
 <script>
 'use strict';
 const $ = s => document.querySelector(s);
+/* A copy served from a folder named clever-<name> (say clever-alpha, next to the live clever folder on the same
+   site) keeps its own storage under ca.<name>.*, so a test version can't change the live one's settings, cal
+   profiles, traces or deck layout. The first time it opens it copies them from the live copy. */
+const CHAN = ((location.pathname.match(/\/clever-([a-z0-9]+)\//i) || [])[1] || '').toLowerCase();
+const skey = k => CHAN && k.startsWith('ca.') ? 'ca.' + CHAN + '.' + k.slice(3) : k;
 const store = {
-  get(k, d){ try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
-  set(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+  get(k, d){ try { const v = localStorage.getItem(skey(k)); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v){ try { localStorage.setItem(skey(k), JSON.stringify(v)); } catch {} }
 };
+if (CHAN) try {
+  if (!localStorage.getItem('ca.' + CHAN + '.copied')){
+    for (let i = 0; i < localStorage.length; i++){
+      const k = localStorage.key(i);
+      if (/^ca\.(settings|cals|cal|traces|deck|legacy\..+)$/.test(k) && localStorage.getItem(skey(k)) == null) localStorage.setItem(skey(k), localStorage.getItem(k));
+    }
+    localStorage.setItem('ca.' + CHAN + '.copied', String(Date.now()));
+  }
+} catch {}
 
 /* ---------------- settings ---------------- */
 const DEFAULTS = {
@@ -3700,6 +3714,8 @@ if (!('hid' in navigator)){
 }
 navigator.mediaDevices?.addEventListener?.('devicechange', () => refreshDevices().catch(() => {}));
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+// a test copy says so, so it's never mistaken for the live one
+if (CHAN){ document.title = 'clever ' + CHAN; const sm = document.querySelector('#brand small'); if (sm){ sm.textContent = 'audiogeek · ' + CHAN; sm.style.color = 'var(--clip)'; } }
 if (!window.isSecureContext) toast('Open this file directly or from localhost so the browser allows microphone access.', 6000);
 requestAnimationFrame(loop);
 </script>
