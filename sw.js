@@ -1,6 +1,10 @@
 // clever service worker: network first, cache fallback, so updates arrive
 // when online and the app still opens at a venue with no signal.
-const CACHE = 'clever-v36';
+// Each copy of clever on the site (say /clever/ and /clever-alpha/) keeps its own cache, named after its folder,
+// and only clears its own old versions.
+const SCOPE = new URL(self.registration.scope).pathname;
+const CACHE = 'clever-v38' + SCOPE;
+const TEST_COPY = /\/clever-[^/]+\/$/.test(SCOPE);
 // the transcript's library is versioned on jsDelivr, so it is cached once and kept across app updates
 const LIB = 'clever-lib';
 const SHELL = ['./', 'guide.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
@@ -14,7 +18,8 @@ self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys()
       // only our own old versions: the speech model lives in the library's own cache ('transformers-cache')
-      .then(keys => Promise.all(keys.filter(k => k.startsWith('clever-v') && k !== CACHE).map(k => caches.delete(k))))
+      // (caches from before they were named per folder have no '/' and belong to the live copy)
+      .then(keys => Promise.all(keys.filter(k => k.startsWith('clever-v') && k !== CACHE && (k.endsWith(SCOPE) || (!k.includes('/') && !TEST_COPY))).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });

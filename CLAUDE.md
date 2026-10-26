@@ -23,8 +23,9 @@ Keep it a single self-contained page. Don't add a bundler, framework or npm depe
 - Served by the owner's Node/Express server as static files under `/clever/`, over HTTPS. Mic access and WebHID require HTTPS.
 - The server folder is a git clone of this repo. The owner deploys by running `git pull` on the server, usually over SSH from Termux on his phone. There is no CI.
 - All paths are relative (manifest `start_url` and `scope` are `./`, the service worker is registered as `sw.js`). Keep them relative so the app works in any subfolder.
-- When you change cached assets, bump `CACHE` in `sw.js` (currently `clever-v36`) so installed copies refresh.
-- Commit and push to `main`, then tell the owner to pull.
+- When you change cached assets, bump the version in `CACHE` in `sw.js` (currently `clever-v38` on alpha, `clever-v37` on main, followed by the folder path) so installed copies refresh.
+- **Branches:** `main` is the live site (`/clever/`). New work goes to the `alpha` branch, which the owner runs as a git worktree in a `clever-alpha` folder next to the live one (`/clever-alpha/`). Commit and push to `alpha` and tell the owner to pull in `clever-alpha`. Only when the owner says a feature is ready, merge `alpha` into `main`, push, and tell him to pull the live folder. Urgent fixes to the live site go on `main` and are then merged into `alpha`. The live commit when this started is `e54dc49`.
+- **Copies side by side:** a copy in a folder named `clever-<name>` keeps its storage under `ca.<name>.*` (`CHAN`, `skey()` in the settings section), copied once from the live keys the first time it opens, and shows its name next to the logo and in the title. Each copy's service worker names its cache after its folder (`SCOPE`) and only deletes its own old versions; the live copy also clears the old unnamed caches.
 
 ## Code map (`index.html`)
 
@@ -54,7 +55,7 @@ Keep it a single self-contained page. Don't add a bundler, framework or npm depe
    - **Listen (headphone monitor)**: `monBuild()` makes a Web Audio graph from the raw input nodes kept in `S.srcMeas`/`S.srcRef` to a `MediaStreamAudioDestinationNode` played by an `<audio>` element, so it can use its own output (`setSinkId`, `P.monOut`). Modes (`P.monMode`, always reset to off on load): mic, ref, sub (mic minus ref through a delay node and a least-squares gain from `rr`/`gxx`, updated every 0.5 s) and pred (mic minus ref convolved with a coherence-weighted IR from the 16k accumulator, rebuilt every 2 s and crossfaded between two ConvolverNodes; the mic path gets `MON_PRE` samples of extra delay so slightly acausal taps fit). `monInfo()` shows the expected cancellation from the spectra. Verified in a simulated room (delay, EQ peak, 80 Hz high-pass, 250 ms reverb, noise): pred cancelled 21.6 dB in 100 Hz–10 kHz (expected 16.5); sub cancelled 5.1 dB there (expected 5.1) but added 11.6 dB below 100 Hz because of the high-pass, which is correct for plain subtraction.
    - **UI wiring**: `bind(id, key, opts)` connects a form control to a `P` key. `syncUI()` pushes state back into the DOM.
 
-Storage keys: `ca.settings`, `ca.cals`, `ca.traces`, `ca.deck`. The old `ca.cal` key is migrated into `ca.cals` on load. Don't rename these keys without a migration, or users lose their cal profiles and traces.
+Storage keys: `ca.settings`, `ca.cals`, `ca.traces`, `ca.deck` (prefixed `ca.<name>.` in a `clever-<name>` copy). The old `ca.cal` key is migrated into `ca.cals` on load. Don't rename these keys without a migration, or users lose their cal profiles and traces.
 
 ## Measurement conventions
 
