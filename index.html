@@ -3155,40 +3155,63 @@ function rmUnpack(buf){
   return { k, seq, d };
 }
 const RELAY_PARAM = new URLSearchParams(location.search).get('relay');
-const relayUrl = () => (RELAY_PARAM || P.relayUrl || '').trim() || `wss://${location.hostname}:8443/clever-relay`;
+const RELAY_DEFAULT = () => `wss://${location.hostname}:8444/clever-relay`;
+const relayUrl = () => (RELAY_PARAM || P.relayUrl || '').trim() || RELAY_DEFAULT();
 const RM_RB = 1 << 18, RM_RBM = RM_RB - 1;
-const RM = { code: null, ws: null, pc: null, dc: null, via: '', state: 'off', meta: null, cal: null, ring: new Float32Array(RM_RB), hi: 0, lastSeq: -1, lost: 0, under: 0, recv: 0, minWin: null, winT: 0, hist: [], fit: null, app: null, timer: 0, pk: 0, pkT: 0 };
+const RM = { code: null, key: null, peer: null, ws: null, pc: null, dc: null, via: '', state: 'off', meta: null, cal: null, ring: new Float32Array(RM_RB), hi: 0, lastSeq: -1, lost: 0, under: 0, recv: 0, minWin: null, winT: 0, hist: [], fit: null, app: null, timer: 0, pk: 0, pkT: 0 };
 function rmLocalNow(){ return S.ctx && S.frame0 != null ? S.ctx.currentTime * S.fs - S.frame0 : null; }
 function rmReset(){ RM.ring.fill(0); RM.hi = 0; RM.lastSeq = -1; RM.lost = 0; RM.under = 0; RM.recv = 0; RM.minWin = null; RM.winT = 0; RM.hist = []; RM.fit = null; RM.app = null; }
 function rmPair(){
   rmClose();
-  const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let c = ''; const r = crypto.getRandomValues(new Uint8Array(6)); for (const b of r) c += A[b % A.length];
-  RM.code = c; RM.state = 'waiting'; rmReset();
+  // the room code is shown; the key (the secret the phone joins with) travels only in the QR code's link
+  const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', rnd = n => Array.from(crypto.getRandomValues(new Uint8Array(n)), b => A[b & 31]).join('');
+  RM.code = rnd(6); RM.key = rnd(24); RM.peer = null; RM.state = 'waiting'; rmReset();
   rmConnect('foh'); rmUI();
 }
+// the relay (relay/clever-relay.js): clever hosts the room with a key per role, the phone joins with the mic key
 function rmConnect(role){
-  let ws; try { ws = new WebSocket(relayUrl() + (relayUrl().includes('?') ? '&' : '?') + `room=${RM.code}&role=${role}`); } catch (e) { RM.state = 'error'; RM.err = 'Bad relay address.'; rmUI(); return; }
+  let ws; try { ws = new WebSocket(relayUrl()); } catch (e) { RM.state = 'error'; RM.err = 'Bad relay address.'; rmUI(); return; }
   ws.binaryType = 'arraybuffer'; RM.ws = ws;
-  ws.onopen = () => { RM.err = ''; rmUI(); };
+  ws.onopen = () => {
+    ws.send(JSON.stringify(role === 'foh' ? { type: 'host', room: RM.code, keys: { mic: RM.key } } : { type: 'join', room: RM.code, key: RM.key }));
+    rmUI();
+  };
   ws.onerror = () => { RM.err = `Can't reach the relay at ${relayUrl()}.`; rmUI(); };
   ws.onclose = () => { if (RM.ws === ws){ RM.ws = null; if (RM.state !== 'off'){ RM.err = RM.err || 'The relay connection closed.'; setTimeout(() => { if (RM.code && !RM.ws && RM.state !== 'off') rmConnect(role); }, 3000); } rmUI(); } };
-  ws.onmessage = e => role === 'foh' ? rmFohMsg(e.data) : rmMicMsg(e.data);
+  ws.onmessage = e => role === 'foh' ? rmFohRelay(e.data) : rmMicRelay(e.data);
 }
-function rmSend(obj){ if (RM.ws && RM.ws.readyState === 1) RM.ws.send(JSON.stringify(obj)); }
+// to the other side through the relay: clever addresses the phone by its id, the phone always talks to clever
+function rmSend(obj){
+  if (!RM.ws || RM.ws.readyState !== 1) return;
+  if (RM.state === 'mic') RM.ws.send(JSON.stringify({ type: 'up', msg: obj }));
+  else if (RM.peer) RM.ws.send(JSON.stringify({ type: 'to', id: RM.peer, msg: obj }));
+}
+const RM_ERRS = { 'room-taken': 'Another computer is using this code. Press New code.', 'not-found': 'This code isn\'t active. Pair again in clever and scan the new code.', 'room-closed': 'clever closed this pairing. Pair again and scan the new code.', 'room-full': 'Too many devices on this code.', 'bad-request': 'The relay refused the connection (out of date?).' };
 function rmClose(quiet){
   try { RM.dc && RM.dc.close(); } catch {} try { RM.pc && RM.pc.close(); } catch {} try { RM.ws && RM.ws.close(); } catch {}
-  RM.dc = RM.pc = RM.ws = null; RM.via = ''; RM.state = 'off'; RM.code = null; RM.meta = null; clearTimeout(RM.timer);
+  RM.dc = RM.pc = RM.ws = null; RM.via = ''; RM.state = 'off'; RM.code = RM.key = RM.peer = null; RM.meta = null; clearTimeout(RM.timer);
   if (P.measSrc === 'remote' && !quiet) setMeasSrc('local');
   rmUI();
 }
 // --- the computer at FOH ---
-function rmFohMsg(data){
-  if (typeof data !== 'string'){ rmIn(data); return; }
+const rmHex = (buf, n) => Array.from(new Uint8Array(buf, 0, n), b => b.toString(16).padStart(2, '0')).join('');
+function rmFohRelay(data){
+  // binary: the phone's audio, with its 6-byte id in front
+  if (typeof data !== 'string'){ if (data.byteLength > 6 && rmHex(data, 6) === RM.peer) rmIn(data.slice(6)); return; }
   let m; try { m = JSON.parse(data); } catch { return; }
-  if (m.type === 'welcome'){ if (m.peers.includes('mic')) rmOffer(); }
-  else if (m.type === 'peer-joined' && m.role === 'mic') rmOffer();
-  else if (m.type === 'peer-left' && m.role === 'mic'){ RM.state = 'waiting'; RM.via = ''; try { RM.pc && RM.pc.close(); } catch {} RM.pc = RM.dc = null; toast('The remote mic disconnected.'); rmUI(); }
-  else if (m.type === 'answer' && RM.pc) RM.pc.setRemoteDescription(m.sdp).catch(() => {});
+  if (m.type === 'hosted'){ RM.err = ''; rmUI(); }
+  else if (m.type === 'peer-join' && m.role === 'mic'){
+    // after clever's own reconnect the relay announces the phone again: keep a direct link that still works
+    if (m.id === RM.peer && RM.via === 'direct' && RM.dc && RM.dc.readyState === 'open') return;
+    RM.peer = m.id; rmOffer();
+  }
+  else if (m.type === 'peer-leave' && m.id === RM.peer){ RM.peer = null; RM.state = 'waiting'; RM.via = ''; try { RM.pc && RM.pc.close(); } catch {} RM.pc = RM.dc = null; toast('The remote mic disconnected.'); rmUI(); }
+  else if (m.type === 'from' && m.id === RM.peer && m.msg && typeof m.msg === 'object') rmFohMsg(m.msg);
+  else if (m.type === 'error'){ RM.err = RM_ERRS[m.reason] || 'The relay refused: ' + m.reason; if (m.reason === 'room-taken'){ const ws = RM.ws; RM.ws = null; RM.state = 'error'; try { ws.close(); } catch {} } rmUI(); }
+}
+// signalling and the phone's hello, through the relay or the direct link
+function rmFohMsg(m){
+  if (m.type === 'answer' && RM.pc) RM.pc.setRemoteDescription(m.sdp).catch(() => {});
   else if (m.type === 'ice' && RM.pc && m.c) RM.pc.addIceCandidate(m.c).catch(() => {});
   else if (m.type === 'hello') rmHello(m);
 }
@@ -3199,7 +3222,7 @@ async function rmOffer(){
   const dc = RM.dc = pc.createDataChannel('audio', { ordered: true });
   dc.binaryType = 'arraybuffer';
   dc.onopen = () => { RM.via = 'direct'; RM.state = 'connected'; clearTimeout(RM.timer); rmSend({ type: 'use', via: 'direct' }); rmUI(); };
-  dc.onmessage = e => typeof e.data === 'string' ? rmFohMsg(e.data) : rmIn(e.data);
+  dc.onmessage = e => { if (typeof e.data !== 'string') return rmIn(e.data); let m; try { m = JSON.parse(e.data); } catch { return; } rmFohMsg(m); };
   pc.onicecandidate = e => { if (e.candidate) rmSend({ type: 'ice', c: e.candidate }); };
   await pc.setLocalDescription(await pc.createOffer());
   rmSend({ type: 'offer', sdp: pc.localDescription });
@@ -3287,7 +3310,7 @@ function rmUI(){
   const box = $('#rmQR'); box.hidden = RM.state === 'off' || RM.state === 'connected';
   if (!box.hidden && RM.code && box.dataset.code !== RM.code){
     box.dataset.code = RM.code;
-    const url = location.origin + location.pathname + '?mic=' + RM.code + (RELAY_PARAM || P.relayUrl ? '&relay=' + encodeURIComponent(relayUrl()) : '');
+    const url = location.origin + location.pathname + '?mic=' + RM.code + (RELAY_PARAM || P.relayUrl ? '&relay=' + encodeURIComponent(relayUrl()) : '') + '#k=' + RM.key;
     const q = DSP.qrCode(url), cv = $('#rmQRc'), sc = 5, pad = 4; cv.width = cv.height = (q.size + pad * 2) * sc;
     const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height); g.fillStyle = '#000';
     for (let y = 0; y < q.size; y++) for (let x = 0; x < q.size; x++) if (q.mod(x, y)) g.fillRect((x + pad) * sc, (y + pad) * sc, sc, sc);
@@ -3301,18 +3324,24 @@ setInterval(() => { if (RM.state !== 'off') rmUI(); }, 1000);
 
 // --- the phone ---
 const MICPAGE = new URLSearchParams(location.search).get('mic');
-function rmMicMsg(data){
+const MICKEY = new URLSearchParams(location.hash.slice(1)).get('k');   // the link's # part never reaches the web server
+function rmMicRelay(data){
   if (typeof data !== 'string') return;
   let m; try { m = JSON.parse(data); } catch { return; }
-  if (m.type === 'welcome' || (m.type === 'peer-joined' && m.role === 'foh')) rmSend({ type: 'ready' });
-  else if (m.type === 'offer') rmAnswer(m.sdp);
+  if (m.type === 'joined'){ RM.err = ''; micUI(); }
+  else if (m.type === 'down' && m.msg && typeof m.msg === 'object') rmMicMsg(m.msg);
+  else if (m.type === 'host-offline'){ if (RM.via === 'relay') RM.via = ''; micUI(); }   // a direct link carries on without the relay
+  else if (m.type === 'error'){ RM.err = RM_ERRS[m.reason] || 'The relay refused: ' + m.reason; micUI(); }
+}
+// clever's signalling, through the relay
+function rmMicMsg(m){
+  if (m.type === 'offer') rmAnswer(m.sdp);
   else if (m.type === 'ice' && RM.pc && m.c) RM.pc.addIceCandidate(m.c).catch(() => {});
   else if (m.type === 'use'){ RM.via = m.via; micUI(); rmHelloSend(); }
-  else if (m.type === 'peer-left' && m.role === 'foh'){ RM.via = ''; micUI(); }
 }
 async function rmAnswer(sdp){
   try { RM.pc && RM.pc.close(); } catch {}
-  const pc = RM.pc = new RTCPeerConnection({ iceServers: [] });
+  let pc; try { pc = RM.pc = new RTCPeerConnection({ iceServers: [] }); } catch { return; }   // no WebRTC here: clever falls back to the relay
   pc.ondatachannel = e => { const dc = RM.dc = e.channel; dc.binaryType = 'arraybuffer'; dc.onopen = () => { RM.via = 'direct'; micUI(); rmHelloSend(); }; dc.onclose = () => { if (RM.via === 'direct') RM.via = ''; micUI(); }; };
   pc.onicecandidate = e => { if (e.candidate) rmSend({ type: 'ice', c: e.candidate }); };
   try { await pc.setRemoteDescription(sdp); await pc.setLocalDescription(await pc.createAnswer()); }
@@ -3341,13 +3370,13 @@ async function micStart(){
       else if (RM.via === 'relay' && RM.ws && RM.ws.readyState === 1){ if (RM.ws.bufferedAmount > 1 << 20){ MIC.dropped++; return; } RM.ws.send(rmPack(d, k, MIC.seq++, true)); MIC.sent++; }
     };
     keepAwake(true);
-    RM.code = MICPAGE; RM.state = 'mic'; rmConnect('mic');
+    RM.code = MICPAGE; RM.key = MICKEY; RM.state = 'mic'; if (MICKEY) rmConnect('mic');
   } catch (e) { toast('Could not start the mic: ' + e.message, 5000); }
   micUI();
 }
 function micUI(){
   const el = document.getElementById('micPage'); if (!el) return;
-  el.querySelector('#micStatus').textContent = !MIC.ctx ? 'Tap Start, and allow the microphone.' : !RM.ws || RM.ws.readyState !== 1 ? 'Connecting to the relay…' : RM.via === 'direct' ? 'Sending to clever directly.' : RM.via === 'relay' ? 'Sending to clever through the relay.' : 'Waiting for clever…';
+  el.querySelector('#micStatus').textContent = !MIC.ctx ? 'Tap Start, and allow the microphone.' : !MICKEY ? 'This link is incomplete. Scan the code in clever again.' : RM.err ? RM.err : !RM.ws || RM.ws.readyState !== 1 ? 'Connecting to the relay…' : RM.via === 'direct' ? 'Sending to clever directly.' : RM.via === 'relay' ? 'Sending to clever through the relay.' : 'Waiting for clever…';
   el.querySelector('#micStart').hidden = !!MIC.ctx;
   const sel = el.querySelector('#micCal'); if (sel && !sel.options.length){ sel.add(new Option('No calibration', '')); for (const c of CALS) sel.add(new Option(calLabel(c), String(c.id))); }
   if (sel) sel.value = MIC.cal || '';
@@ -4073,7 +4102,7 @@ function syncUI(){
   $('#voiceSrcBtn').textContent = ({ aux: 'Solo', ref: 'Ref in', meas: 'Mic in' })[voiceSrc()] + ' ▸'; $('#voiceSrcBtn').hidden = P.voiceMode === 'pink';
   $('#voiceModeBtn').textContent = (P.voiceMode === 'pink' ? 'Test speaker' : 'Talker') + ' ▸'; $('#voiceModeBtn').classList.toggle('on', P.voiceMode === 'pink'); $('#voiceResetBtn').textContent = P.voiceMode === 'pink' ? 'Restart' : 'New talker';
   $('#mtAux').hidden = !S.auxOn; $('#refAuxRow').hidden = P.refDev === 'gen';
-  set('relayUrl', P.relayUrl); $('#relayUrl').placeholder = `wss://${location.hostname}:8443/clever-relay`; set('rmBuffer', P.rmBuffer); syncMeasLabel();
+  set('relayUrl', P.relayUrl); $('#relayUrl').placeholder = RELAY_DEFAULT(); set('rmBuffer', P.rmBuffer); syncMeasLabel();
   tgOptions($('#mmTarget'), false); ['voiceSrc', 'voiceTau', 'voiceGate', 'voiceHpf', 'trModel', 'mmTarget', 'mmTau'].forEach(k => set(k, P[k]));
   { const sc = stripCfg(); document.querySelectorAll('[data-st]').forEach(el => { if (document.activeElement !== el) el.value = String(sc[el.dataset.st]); }); }
   $('#trBtn').textContent = P.trOn ? (TR.state === 'loading' ? 'Loading… (press to cancel)' : 'Stop transcript') : P.trReady === P.trModel ? 'Start transcript' : 'Download and start transcript…';

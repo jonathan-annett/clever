@@ -1,0 +1,44 @@
+# systemd unit for clever's pairing server (relay/clever-relay.js).
+#
+# Install (as root), adjusting the paths and the domain below to yours:
+#   cd /path/to/clever-alpha/relay && npm install --omit=dev      # the server needs 'ws'
+#   cp deploy/clever-relay.service /etc/systemd/system/
+#   systemctl daemon-reload
+#   systemctl enable --now clever-relay
+#   journalctl -u clever-relay -f        # logs
+#
+# The TLS certificate stays root-only: systemd reads it at start-up (LoadCredential=) and hands the server a
+# private copy in $CREDENTIALS_DIRECTORY, which clever-relay.js uses automatically. Needs systemd 247+.
+# This is its own service, separate from the timer's (timer-remote, port 8443), so either can move to another
+# server on its own.
+
+[Unit]
+Description=clever pairing server (remote mic relay)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+# An ordinary account that can read the relay folder; no access to /etc/letsencrypt needed
+User=www-data
+Group=www-data
+# The repo's relay folder (with node_modules). A wrong path shows as status=200/CHDIR,
+# a wrong node path in ExecStart as status=203/EXEC.
+WorkingDirectory=/path/to/clever-alpha/relay
+LoadCredential=fullchain.pem:/etc/letsencrypt/live/audiogeek.sophtwhere.com/fullchain.pem
+LoadCredential=privkey.pem:/etc/letsencrypt/live/audiogeek.sophtwhere.com/privkey.pem
+ExecStart=/usr/bin/node clever-relay.js --port 8444 --origin https://audiogeek.sophtwhere.com
+Restart=on-failure
+TimeoutStopSec=5
+RestartSec=5
+
+# Hardening (it only needs its own folder and the network)
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+PrivateDevices=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,81 +1,240 @@
-// clever relay: a tiny WebSocket room server for pairing a phone with clever.
-//
-// It only passes messages between the devices in a room: WebRTC signalling (offers, answers, ICE candidates) as
-// text, and, when the venue Wi-Fi won't let the two devices talk directly, the remote mic's audio as binary.
-// It stores nothing and knows nothing about audio.
-//
-// Hook it into the Express app with the HTTP server that app.listen() returns:
-//
-//   const server = app.listen(PORT);
-//   require('/path/to/clever/relay/clever-relay')(server);          // needs: npm install ws
-//
-// clever connects to  wss://<your site>/clever-relay?room=<code>&role=<name>
-// If nginx, Caddy or Cloudflare sits in front of Express, it must pass WebSocket upgrades for /clever-relay.
+#!/usr/bin/env node
+/*!
+ * clever-relay.js: the pairing server for clever (remote mic now; phone remote and other devices later).
+ *
+ * Adapted from the presentation timer's remote-server.js (github.com/jonathan-annett/timer-beta), and kept as
+ * a separate copy so each app runs its own process and can move to its own server at any time.
+ *
+ * It only:
+ *   - pairs clever (the "host") with devices ("peers") using a room code plus a secret key per role. The host
+ *     registers the keys; the key a peer joins with decides its role, which the host is told and enforces.
+ *     The server keeps only a SHA-256 of each key;
+ *   - passes small JSON messages between the host and each peer (WebRTC signalling, settings), and
+ *   - passes binary messages (the remote mic's audio when the two can't reach each other directly).
+ * It never looks inside the messages it forwards.
+ *
+ * Protocol (text frames are JSON):
+ *   host → {type:'host', room, keys:{<role>: <key>, …}}   ← {type:'hosted', room, protocol}
+ *   peer → {type:'join', room, key}                        ← {type:'joined', id, role, hostOnline}
+ *                                                           host ← {type:'peer-join', id, role}
+ *   host → {type:'to', id, msg}      peer ← {type:'down', msg}
+ *   peer → {type:'up', msg}          host ← {type:'from', id, msg}
+ *   also: host ← peer-leave{id}; peer ← host-offline, host-online; either ← error{reason} (then closed)
+ *   Binary: a peer's binary frame reaches the host with the peer's 6-byte id in front; the host sends a peer
+ *   binary by putting that id in front, and the server takes it off.
+ *
+ * Usage:
+ *   node clever-relay.js --cert fullchain.pem --key privkey.pem --origin https://audiogeek.example.com [--port 8444]
+ *   node clever-relay.js --insecure --port 8444        # plain ws, for local testing or behind a proxy that does TLS
+ * With systemd, deploy/clever-relay.service passes the certificate in via LoadCredential.
+ * Environment variables work too: PORT, TLS_CERT, TLS_KEY, ALLOWED_ORIGINS (comma separated).
+ * MIT Licensed
+ */
 'use strict';
-// `ws` is installed in the Express app's own folder, so look for it from the app as well as from here
-function loadWs(){ try { return require('ws'); } catch { return require.main.require('ws'); } }
 
-module.exports = function attach(server, opts = {}){
-  const { WebSocketServer, WebSocket } = opts.ws || loadWs();
-  const path = opts.path || '/clever-relay';
-  const maxPerRoom = opts.maxPerRoom || 4;          // the computer, a phone, and room to reconnect
-  const maxMessage = opts.maxMessage || 256 * 1024;
-  const wss = new WebSocketServer({ noServer: true, maxPayload: maxMessage, perMessageDeflate: false });
-  const rooms = new Map();                          // room code -> Set of sockets
+const fs = require('fs');
+const http = require('http');
+const https = require('https');
+const crypto = require('crypto');
+const { WebSocketServer, WebSocket } = require('ws');
 
-  server.on('upgrade', (req, socket, head) => {
-    let url; try { url = new URL(req.url, 'http://x'); } catch { return; }
-    if (url.pathname !== path) return;              // leave other upgrade handlers alone
-    const room = (url.searchParams.get('room') || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 16);
-    const role = (url.searchParams.get('role') || 'peer').replace(/[^a-z]/g, '').slice(0, 12);
-    if (room.length < 4){ socket.destroy(); return; }
-    const set = rooms.get(room);
-    if (set && set.size >= maxPerRoom){ socket.write('HTTP/1.1 429 Too Many Requests\r\n\r\n'); socket.destroy(); return; }
-    wss.handleUpgrade(req, socket, head, ws => {
-      ws.room = room; ws.role = role; ws.alive = true;
-      if (!rooms.has(room)) rooms.set(room, new Set());
-      const peers = rooms.get(room);
-      for (const p of peers) send(p, JSON.stringify({ type: 'peer-joined', role }));
-      ws.send(JSON.stringify({ type: 'welcome', room, peers: [...peers].map(p => p.role) }));
-      peers.add(ws);
-      ws.on('pong', () => { ws.alive = true; });
-      ws.on('message', (data, isBinary) => {
-        for (const p of peers) if (p !== ws) send(p, data, isBinary);   // pass it on, text or binary
-      });
-      ws.on('close', () => {
-        peers.delete(ws);
-        if (!peers.size) rooms.delete(room);
-        else for (const p of peers) send(p, JSON.stringify({ type: 'peer-left', role }));
-      });
-      ws.on('error', () => {});
+// ─── Config ───────────────────────────────────────────────────────────────────
+
+const PROTOCOL = 1;
+const LIMITS = {
+  textBytes: 16 * 1024,        // signalling and settings are small (SDP is a few KB)
+  textPerSec: 40,              // per socket; extra text messages are dropped
+  binaryBytes: 64 * 1024,      // one audio block is 2–4 KB
+  binaryPerSec: 200,           // the remote mic sends about 47 a second (94 at 96 kHz)
+  binaryBytesPerSec: 512 * 1024,
+  peersPerRoom: 8,
+  keysPerRoom: 8,
+  hostGraceMs: 2 * 60 * 1000,  // keep a room while clever reconnects (a reload, a Wi-Fi blip)
+  pingMs: 25 * 1000,
+  sendBuffer: 2 * 1024 * 1024, // a stalled receiver mustn't build up memory here: drop instead
+};
+const ID_BYTES = 6;
+
+const hash = s => crypto.createHash('sha256').update(String(s)).digest('hex');
+const safeEqual = (a, b) => typeof a === 'string' && typeof b === 'string' && a.length === b.length && crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
+const validRoom = r => typeof r === 'string' && /^[A-Za-z0-9]{6,32}$/.test(r);
+const validKey = k => typeof k === 'string' && k.length >= 16 && k.length <= 128;
+const validRole = r => typeof r === 'string' && /^[a-z]{1,16}$/.test(r);
+
+function send(ws, data, binary) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+  if (ws.bufferedAmount > LIMITS.sendBuffer) return false;
+  ws.send(binary ? data : JSON.stringify(data), { binary: !!binary });
+  return true;
+}
+
+// ─── Relay ────────────────────────────────────────────────────────────────────
+
+// Attach the relay to an http(s) server. Returns { wss, rooms, close }.
+function createRelay(server, opts = {}) {
+  const origins = opts.origins || [];
+  const log = opts.log || (() => {});
+  // room code -> { keys: Map<role, hash>, host: ws|null, peers: Map<id, {ws, role}>, hostGoneAt }
+  const rooms = new Map();
+
+  const wss = new WebSocketServer({
+    server,
+    maxPayload: Math.max(LIMITS.textBytes, LIMITS.binaryBytes + ID_BYTES),
+    perMessageDeflate: false,
+    verifyClient: (info, done) => {
+      const origin = info.origin || info.req.headers.origin;
+      // Browsers always send Origin, so this stops other websites using the server
+      if (origins.length && origin && !origins.includes(origin)) { log('rejected origin', origin); return done(false, 403, 'Origin not allowed'); }
+      done(true);
+    },
+  });
+
+  function dropRoom(code) {
+    const room = rooms.get(code); if (!room) return;
+    for (const p of room.peers.values()) { send(p.ws, { type: 'error', reason: 'room-closed' }); p.ws.close(); }
+    rooms.delete(code);
+  }
+
+  wss.on('connection', ws => {
+    ws.isAlive = true;
+    ws.on('pong', () => { ws.isAlive = true; });
+    // must be handled: an oversized or malformed frame emits 'error', and unhandled it would crash the server
+    ws.on('error', err => log('socket error:', err.code || err.message));
+    let kind = null, code = null, id = null, idBuf = null;
+    let win = Date.now(), nText = 0, nBin = 0, bytes = 0;
+
+    ws.on('message', (raw, isBinary) => {
+      const now = Date.now();
+      if (now - win > 1000) { win = now; nText = 0; nBin = 0; bytes = 0; }
+
+      if (isBinary) {
+        if (!kind || ++nBin > LIMITS.binaryPerSec || (bytes += raw.length) > LIMITS.binaryBytesPerSec) return;
+        const room = rooms.get(code); if (!room) return;
+        if (kind === 'peer') {
+          if (raw.length > LIMITS.binaryBytes || !room.peers.has(id)) return;
+          send(room.host, Buffer.concat([idBuf, raw]), true);
+        } else if (raw.length > ID_BYTES) {
+          const p = room.peers.get(raw.subarray(0, ID_BYTES).toString('hex'));
+          if (p) send(p.ws, raw.subarray(ID_BYTES), true);
+        }
+        return;
+      }
+
+      if (++nText > LIMITS.textPerSec || raw.length > LIMITS.textBytes) return;
+      let m; try { m = JSON.parse(raw); } catch { return; }
+      if (!m || typeof m !== 'object') return;
+
+      if (!kind) {
+        if (!validRoom(m.room)) { send(ws, { type: 'error', reason: 'bad-request' }); return ws.close(); }
+
+        if (m.type === 'host') {
+          const keys = new Map();
+          if (m.keys && typeof m.keys === 'object') for (const [role, key] of Object.entries(m.keys)) if (validRole(role) && validKey(key) && keys.size < LIMITS.keysPerRoom) keys.set(role, hash(key));
+          if (!keys.size) { send(ws, { type: 'error', reason: 'bad-request' }); return ws.close(); }
+          let room = rooms.get(m.room);
+          // the same clever (it knows a key the room already has) may take its room back; nobody else may
+          if (room && ![...keys].some(([role, h]) => safeEqual(room.keys.get(role), h))) { send(ws, { type: 'error', reason: 'room-taken' }); return ws.close(); }
+          if (!room) { room = { keys, host: null, peers: new Map(), hostGoneAt: null }; rooms.set(m.room, room); }
+          // keys that changed or went away: their peers are dropped
+          for (const [pid, p] of room.peers) if (!safeEqual(room.keys.get(p.role), keys.get(p.role))) { send(p.ws, { type: 'error', reason: 'room-closed' }); p.ws.close(); room.peers.delete(pid); }
+          room.keys = keys;
+          if (room.host && room.host !== ws) room.host.close();          // the newest clever window wins
+          room.host = ws; room.hostGoneAt = null;
+          kind = 'host'; code = m.room;
+          send(ws, { type: 'hosted', room: code, protocol: PROTOCOL });
+          for (const [pid, p] of room.peers) { send(ws, { type: 'peer-join', id: pid, role: p.role }); send(p.ws, { type: 'host-online' }); }
+          return;
+        }
+
+        if (m.type === 'join') {
+          const room = rooms.get(m.room);
+          const h = validKey(m.key) ? hash(m.key) : null;
+          let role = null;
+          if (room && h) for (const [r, kh] of room.keys) if (safeEqual(kh, h)) { role = r; break; }
+          if (!role) { send(ws, { type: 'error', reason: 'not-found' }); return ws.close(); }
+          if (room.peers.size >= LIMITS.peersPerRoom) { send(ws, { type: 'error', reason: 'room-full' }); return ws.close(); }
+          idBuf = crypto.randomBytes(ID_BYTES); id = idBuf.toString('hex');
+          room.peers.set(id, { ws, role });
+          kind = 'peer'; code = m.room;
+          send(ws, { type: 'joined', id, role, hostOnline: !!room.host });
+          send(room.host, { type: 'peer-join', id, role });
+          return;
+        }
+        send(ws, { type: 'error', reason: 'bad-request' });
+        return ws.close();
+      }
+
+      const room = rooms.get(code); if (!room) return;
+      if (kind === 'host' && m.type === 'to') { const p = room.peers.get(m.id); if (p) send(p.ws, { type: 'down', msg: m.msg }); }
+      else if (kind === 'peer' && m.type === 'up' && room.peers.has(id)) send(room.host, { type: 'from', id, msg: m.msg });
+    });
+
+    ws.on('close', () => {
+      const room = rooms.get(code); if (!room) return;
+      if (kind === 'host' && room.host === ws) {
+        room.host = null; room.hostGoneAt = Date.now();
+        for (const p of room.peers.values()) send(p.ws, { type: 'host-offline' });
+      } else if (kind === 'peer' && room.peers.has(id)) {
+        room.peers.delete(id);
+        send(room.host, { type: 'peer-leave', id });
+      }
     });
   });
-  // drop connections that have gone away without saying so (a phone that slept, a laptop that lost Wi-Fi)
-  const timer = setInterval(() => {
-    for (const ws of wss.clients){ if (!ws.alive){ ws.terminate(); continue; } ws.alive = false; try { ws.ping(); } catch {} }
-  }, 20000);
-  timer.unref && timer.unref();
-  function send(ws, data, isBinary){
-    if (ws.readyState !== WebSocket.OPEN) return;
-    if (ws.bufferedAmount > 2 * 1024 * 1024) return;   // a stalled receiver mustn't build up memory here
-    ws.send(data, { binary: !!isBinary });
-  }
-  return wss;
-};
 
-// Standalone, on its own port, using the site's certificate (a page on https can only open wss://):
-//   cd relay && npm install && node clever-relay.js --port 8443 --cert /etc/letsencrypt/live/<site>/fullchain.pem --key /etc/letsencrypt/live/<site>/privkey.pem
-// Behind a proxy that handles TLS, run it without --cert/--key and point the proxy at it.
-if (require.main === module){
-  const args = process.argv.slice(2), arg = (k, d) => { const i = args.indexOf('--' + k); return i >= 0 ? args[i + 1] : process.env['RELAY_' + k.toUpperCase()] || d; };
-  const port = +arg('port', 8443), cert = arg('cert'), key = arg('key');
-  const fs = require('fs');
-  const handler = (req, res) => { res.writeHead(200, { 'Content-Type': 'text/plain' }); res.end('clever relay\n'); };
-  const server = cert && key
-    ? require('https').createServer({ cert: fs.readFileSync(cert), key: fs.readFileSync(key) }, handler)
-    : require('http').createServer(handler);
-  module.exports(server, { path: arg('path', '/clever-relay') });
-  // certificates renew (Let's Encrypt every 60–90 days): reload them without dropping anyone
-  if (cert && key) setInterval(() => { try { server.setSecureContext({ cert: fs.readFileSync(cert), key: fs.readFileSync(key) }); } catch {} }, 12 * 3600 * 1000).unref();
-  server.listen(port, () => console.log(`clever relay on ${cert ? 'wss' : 'ws'}://0.0.0.0:${port}${arg('path', '/clever-relay')}`));
+  // drop rooms whose clever has been gone too long, and connections that stopped answering pings
+  const sweep = setInterval(() => {
+    const now = Date.now();
+    for (const [c, room] of rooms) if (!room.host && room.hostGoneAt && now - room.hostGoneAt > LIMITS.hostGraceMs) dropRoom(c);
+  }, 30 * 1000);
+  const ping = setInterval(() => {
+    for (const ws of wss.clients) { if (!ws.isAlive) { ws.terminate(); continue; } ws.isAlive = false; try { ws.ping(); } catch {} }
+  }, LIMITS.pingMs);
+  sweep.unref(); ping.unref();
+  wss.on('error', err => log('server error:', err.message));
+
+  function close(done) {
+    clearInterval(sweep); clearInterval(ping);
+    for (const ws of wss.clients) { try { ws.close(1001, 'server restarting'); } catch {} }
+    wss.close();
+    setTimeout(() => { for (const ws of wss.clients) ws.terminate(); done && done(); }, 2000).unref();
+  }
+  return { wss, rooms, close };
+}
+
+module.exports = { createRelay, LIMITS, PROTOCOL, ID_BYTES };
+
+// ─── Standalone ───────────────────────────────────────────────────────────────
+
+if (require.main === module) {
+  const args = process.argv.slice(2);
+  const arg = name => { const i = args.indexOf('--' + name); return i >= 0 ? args[i + 1] : undefined; };
+  const flag = name => args.includes('--' + name);
+  const PORT = parseInt(arg('port') || process.env.PORT || '8444', 10);
+  // With systemd's LoadCredential= the certificate files are handed over in $CREDENTIALS_DIRECTORY,
+  // so the server never needs read access to /etc/letsencrypt
+  const CRED_DIR = process.env.CREDENTIALS_DIRECTORY;
+  const CERT = arg('cert') || process.env.TLS_CERT || (CRED_DIR && `${CRED_DIR}/fullchain.pem`);
+  const KEY = arg('key') || process.env.TLS_KEY || (CRED_DIR && `${CRED_DIR}/privkey.pem`);
+  const INSECURE = flag('insecure');
+  const ORIGINS = (arg('origin') || process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
+  const log = (...a) => console.log('[clever-relay]', ...a);
+
+  if (!INSECURE && (!CERT || !KEY)) { console.error('Need --cert and --key (TLS certificate and private key), or --insecure for local testing.'); process.exit(1); }
+  if (!ORIGINS.length) console.warn('[clever-relay] WARNING: no --origin given, so any website may connect. Set --origin https://your-clever-site');
+
+  let relay;
+  const handler = (req, res) => {
+    // a health check, and a page that lets you accept a self-signed certificate
+    res.writeHead(200, { 'content-type': 'text/plain' });
+    res.end(`clever relay ok, protocol ${PROTOCOL} (${relay ? relay.rooms.size : 0} rooms)\n`);
+  };
+  const server = INSECURE ? http.createServer(handler) : https.createServer({ cert: fs.readFileSync(CERT), key: fs.readFileSync(KEY) }, handler);
+  relay = createRelay(server, { origins: ORIGINS, log });
+  server.listen(PORT, () => log(`${INSECURE ? 'ws' : 'wss'} on port ${PORT}` + (ORIGINS.length ? `, origins: ${ORIGINS.join(', ')}` : '')));
+
+  // Shut down promptly (systemctl stop/restart, certificate renewal): close the sockets (clever and the
+  // phones reconnect by themselves) and don't wait more than 2 s
+  const shutdown = sig => { log(`${sig}: closing ${relay.wss.clients.size} connections`); relay.close(() => process.exit(0)); server.close(() => process.exit(0)); };
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
