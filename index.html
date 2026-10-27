@@ -331,9 +331,9 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
             <div class="row"><label for="stMax">Deepest cut (dB)</label><input type="number" id="stMax" data-st="maxCut" step="1"></div>
             <p class="note">Describe the channel EQ on your desk, and the Voice panel reduces everything it found to settings for these bands, worst problems first. The low cut is assumed to be set already. If the voice reaches clever after the channel EQ (a post-EQ solo), the settings are changes on top of what is already dialled in.</p>
           </div></details>
-          <div class="row"><label for="trModel">Transcript</label><select id="trModel"><option value="tiny">Small model (about 120 MB)</option><option value="base">Larger model (about 210 MB)</option></select></div>
+          <div id="trBox"><div class="row"><label for="trModel">Transcript</label><select id="trModel"><option value="tiny">Small model (about 120 MB)</option><option value="base">Larger model (about 210 MB)</option></select></div>
           <div class="btns"><button class="btn" id="trBtn">Download and start transcript…</button></div>
-          <p class="note" id="trNote">Experimental. Writes down what the talker says and highlights the words where a pop or sibilant was marked, so you can tap the word you heard and get the fix. The speech model is downloaded once and kept by the browser.</p>
+          <p class="note" id="trNote">Experimental. Writes down what the talker says and highlights the words where a pop or sibilant was marked, so you can tap the word you heard and get the fix. The speech model is downloaded once and kept by the browser.</p></div>
           <p class="note">Checks a vocal against the shape of natural speech and suggests cuts for the channel strip: a high-pass for pops and rumble, low-mid cuts for proximity, notches for resonances, and gentle cuts for nasal, harsh or sibilant tones. It only listens while someone is speaking above the gate. Suggestions are cuts only, and it warns when they would cost enough speech level that you'd need more gain.</p>
         </div>
       </details>
@@ -2432,6 +2432,7 @@ function trNote(){
   el.textContent = TR.state === 'loading' ? 'Loading the speech model: ' + TR.msg + '…' : TR.state === 'error' ? 'Transcript failed: ' + TR.msg : TR.state === 'ready' && P.trOn ? `Transcribing on ${TR.device === 'webgpu' ? 'the GPU (WebGPU)' : 'the CPU'}. Words stay in memory only and are cleared by New talker.` : base;
 }
 function trButton(){
+  if (!TR_AVAIL) return;
   if (P.trOn){ P.trOn = false; trStop(); changed(); return; }
   if (P.trReady !== P.trModel){
     const mb = P.trModel === 'base' ? 210 : 120;
@@ -3435,7 +3436,10 @@ document.querySelectorAll('[data-st]').forEach(el => el.addEventListener('change
   S.strip = null; S.stripT = 0; S.voicePanelT = 0; changed();
 }));
 bind('trModel', 'trModel', { after: () => { if (P.trOn){ P.trOn = false; trStop(); save(); toast('Model changed. Press the transcript button to load it.'); } } });
-if (P.trOn){ if (P.trReady === P.trModel) setTimeout(trStart, 1500); else { P.trOn = false; save(); } }   // already downloaded: start again quietly
+// the transcript is on trial: only test copies (clever-alpha and the like) offer it
+const TR_AVAIL = !!CHAN;
+if (!TR_AVAIL){ $('#trBox').hidden = true; P.trOn = false; }
+else if (P.trOn){ if (P.trReady === P.trModel) setTimeout(trStart, 1500); else { P.trOn = false; save(); } }   // already downloaded: start again quietly
 // Voice rules: every threshold and range the vocal check uses, stored as overrides of DSP.VOICE_DEFAULTS in P.voiceCfg
 const VOICE_RULES = [
   ['sub',    'Pops / rumble', { thr: 1 }],
