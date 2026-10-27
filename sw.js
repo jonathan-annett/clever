@@ -3,7 +3,7 @@
 // Each copy of clever on the site (say /clever/ and /clever-alpha/) keeps its own cache, named after its folder,
 // and only clears its own old versions.
 const SCOPE = new URL(self.registration.scope).pathname;
-const CACHE = 'clever-v38' + SCOPE;
+const CACHE = 'clever-v39' + SCOPE;
 const TEST_COPY = /\/clever-[^/]+\/$/.test(SCOPE);
 // the transcript's library is versioned on jsDelivr, so it is cached once and kept across app updates
 const LIB = 'clever-lib';

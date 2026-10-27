@@ -1,0 +1,8 @@
+{
+  "name": "clever-relay",
+  "private": true,
+  "description": "Pairs a phone with clever for the remote mic: WebRTC signalling, and the audio when a direct link isn't possible.",
+  "main": "clever-relay.js",
+  "scripts": { "start": "node clever-relay.js" },
+  "dependencies": { "ws": "^8.18.0" }
+}

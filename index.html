@@ -110,6 +110,11 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .calinfo b{color:var(--fg);font-weight:500}
 #calPlot{width:100%;height:64px;display:block;background:var(--bg);border-radius:4px}
 #spkPlot{width:100%;height:110px;display:block;background:var(--bg);border-radius:4px}
+#micPage{position:fixed;inset:0;z-index:40;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:24px;text-align:center}
+#micPage .micsub{color:var(--dim);font:13px var(--mono);margin-top:-10px}
+#micPage .micmeter{width:min(340px,90vw);height:18px;background:var(--raise);border-radius:4px;overflow:hidden}
+#micPage .micmeter b{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--ok) 0 70%,var(--accent) 70% 88%,var(--clip) 88%)}
+#micPage .micdb{font:600 22px var(--mono)} #micPage .micst{font-size:15px;min-height:1.4em}
 #tgPlot{width:100%;height:90px;display:block;background:var(--bg);border-radius:4px}
 .tgpts{display:grid;grid-template-columns:1fr 1fr 28px;gap:4px;align-items:center}
 .tgpts input{padding:3px 5px;font-size:12px}
@@ -312,6 +317,20 @@ canvas.plot{width:100%;height:100%;display:block;min-height:0;cursor:crosshair}
           <div class="row" id="genFreqRow"><label for="genFreq">Frequency</label><input type="number" id="genFreq" min="10" max="24000" step="1"></div>
           <div class="row"><label for="genLevel">Level <span class="readout" id="genLevelV"></span></label><input type="range" id="genLevel" min="-60" max="0" step="1"></div>
           <p class="note">Level is RMS in dBFS. The generator also feeds the reference channel when Reference is set to the internal loopback.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>Remote mic</summary>
+        <div class="body">
+          <p class="note">Experimental. A phone running clever becomes a second measurement mic, say on the balcony, streaming to this computer over Wi-Fi with its timing lined up to this computer's clock. Most reliable: join this computer to the phone's hotspot. Needs the clever relay running on the server (see relay/README.md in the repo).</p>
+          <div class="row"><label for="relayUrl">Relay</label><input type="text" id="relayUrl" autocomplete="off" spellcheck="false"></div>
+          <div class="btns"><button class="btn primary" id="rmPair">Pair a phone…</button><button class="btn" id="rmClose" hidden>Disconnect</button></div>
+          <div id="rmQR" hidden style="display:grid;gap:6px;justify-items:center"><canvas id="rmQRc" style="width:200px;height:200px;image-rendering:pixelated;border-radius:4px"></canvas><div class="calinfo">Scan with the phone, or open <span id="rmUrl" style="word-break:break-all"></span><br>Code <b id="rmCode"></b></div></div>
+          <div class="calinfo" id="rmStatus">Not paired.</div>
+          <div class="row"><label for="measSrc">Measure with</label><select id="measSrc"><option value="local">This computer's mic</option><option value="remote">The remote phone</option></select></div>
+          <div class="row"><label for="rmBuffer">Buffer</label><select id="rmBuffer"><option value="100">100 ms</option><option value="200">200 ms</option><option value="400">400 ms</option></select></div>
+          <p class="note">The remote mic replaces this computer's mic everywhere, with the phone's own calibration. The RTA works straight away; for a transfer function press Find delay after switching, since the phone's delay includes the buffer. Raise the buffer if you hear or see dropouts.</p>
         </div>
       </details>
 
@@ -1063,7 +1082,78 @@ const DSP = (() => {
     const rms = a => Math.sqrt(a.reduce((t, x) => t + x * x, 0) / (a.length || 1));
     return { gains: Array.from(gains), q: Array.from(gains, (g, b) => qOf(b, g)), grid: G, measured: Hs.map(h => h ? h.v - ref : NaN), correction: Array.from(C), target: G.map(x => targetAt(opts.target, x)), rmsBefore: rms(before), rmsAfter: rms(after) };
   }
-  return { fft, hann, prefix, cum, gccPhat, aWeight, cWeight, interpLog, parseCal, kWeight, voiceAnalyze, filterDb, VOICE_DEFAULTS, voiceCfg, voiceEvents, stripFit, STRIP_DEFAULTS, spkFit, firFromDb, targetAt, graphicFit };
+  /* QR code for pairing a phone: byte mode, error correction M, versions 1–10 (up to 213 bytes), mask chosen by
+     the standard penalty rules. Returns { size, mod(x, y) → true for dark }. */
+  function qrCode(text, forceMask){
+    const bytes = Array.from(new TextEncoder().encode(text));
+    // per version: [ec codewords per block, [blocks, data codewords per block], …]
+    const EC = [null, [10, [1, 16]], [16, [1, 28]], [26, [1, 44]], [18, [2, 32]], [24, [2, 43]], [16, [4, 27]], [18, [4, 31]], [22, [2, 38], [2, 39]], [22, [3, 36], [2, 37]], [26, [4, 43], [1, 44]]];
+    const ALIGN = [null, [], [6, 18], [6, 22], [6, 26], [6, 30], [6, 34], [6, 22, 38], [6, 24, 42], [6, 26, 46], [6, 28, 50]];
+    let ver = 0, dataCw = 0;
+    for (let v = 1; v <= 10; v++){ const d = EC[v].slice(1).reduce((t, [b, n]) => t + b * n, 0), cb = v < 10 ? 8 : 16; if (4 + cb + 8 * bytes.length <= 8 * d){ ver = v; dataCw = d; break; } }
+    if (!ver) throw new Error('QR: text too long');
+    // data bits
+    const bits = []; const put = (v, n) => { for (let i = n - 1; i >= 0; i--) bits.push((v >>> i) & 1); };
+    put(4, 4); put(bytes.length, ver < 10 ? 8 : 16); bytes.forEach(b => put(b, 8));
+    for (let i = 0; i < 4 && bits.length < dataCw * 8; i++) bits.push(0);
+    while (bits.length % 8) bits.push(0);
+    const data = []; for (let i = 0; i < bits.length; i += 8) data.push(parseInt(bits.slice(i, i + 8).join(''), 2));
+    for (let k = 0; data.length < dataCw; k++) data.push(k % 2 ? 0x11 : 0xEC);
+    // Reed–Solomon over GF(256), polynomial 0x11D
+    const EXP = new Array(512), LOG = new Array(256); for (let i = 0, x = 1; i < 255; i++){ EXP[i] = x; LOG[x] = i; x <<= 1; if (x & 256) x ^= 0x11D; } for (let i = 255; i < 512; i++) EXP[i] = EXP[i - 255];
+    const mul = (a, b) => a && b ? EXP[LOG[a] + LOG[b]] : 0;
+    const ecn = EC[ver][0]; let gen = [1]; for (let i = 0; i < ecn; i++){ const ng = new Array(gen.length + 1).fill(0); for (let j = 0; j < gen.length; j++){ ng[j] ^= gen[j]; ng[j + 1] ^= mul(gen[j], EXP[i]); } gen = ng; }
+    const rs = d => { const r = new Array(ecn).fill(0); for (const c of d){ const f = c ^ r.shift(); r.push(0); for (let j = 0; j < ecn; j++) r[j] ^= mul(gen[j + 1], f); } return r; };
+    const blocks = []; let off = 0; for (const [b, n] of EC[ver].slice(1)) for (let i = 0; i < b; i++){ const d = data.slice(off, off + n); off += n; blocks.push({ d, e: rs(d) }); }
+    const cw = []; const maxD = Math.max(...blocks.map(b => b.d.length));
+    for (let i = 0; i < maxD; i++) for (const b of blocks) if (i < b.d.length) cw.push(b.d[i]);
+    for (let i = 0; i < ecn; i++) for (const b of blocks) cw.push(b.e[i]);
+    // modules: function patterns first, recorded so data and masks skip them
+    const N = ver * 4 + 17, M = Array.from({ length: N }, () => new Array(N).fill(null)), F = Array.from({ length: N }, () => new Array(N).fill(false));
+    const set = (x, y, v) => { M[y][x] = v; F[y][x] = true; };
+    const finder = (cx, cy) => { for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++){ const x = cx + dx, y = cy + dy; if (x < 0 || y < 0 || x >= N || y >= N) continue; const d = Math.max(Math.abs(dx), Math.abs(dy)); set(x, y, d !== 2 && d !== 4); } };
+    finder(3, 3); finder(N - 4, 3); finder(3, N - 4);
+    for (let i = 8; i < N - 8; i++){ set(i, 6, i % 2 === 0); set(6, i, i % 2 === 0); }
+    const al = ALIGN[ver];
+    const last = al[al.length - 1];
+    // alignment patterns everywhere on the grid except the three corners that hold the finders
+    for (const ay of al) for (const ax of al){ if ((ax === 6 && ay === 6) || (ax === 6 && ay === last) || (ax === last && ay === 6)) continue; for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) set(ax + dx, ay + dy, Math.max(Math.abs(dx), Math.abs(dy)) !== 1); }
+    const bch = (v, poly, n) => { let r = v << n; const pl = Math.floor(Math.log2(poly)); for (let i = Math.floor(Math.log2(r)); i >= pl; i--) if (r >> i & 1) r ^= poly << (i - pl); return (v << n) | r; };
+    const putFormat = mask => {
+      const f = bch((0 << 3) | mask, 0x537, 10) ^ 0x5412;   // M = 00
+      for (let i = 0; i < 15; i++){
+        const b = (f >> i) & 1;
+        if (i < 6) set(8, i, !!b); else if (i < 8) set(8, i + 1, !!b); else set(8, N - 15 + i, !!b);
+        if (i < 8) set(N - i - 1, 8, !!b); else if (i < 9) set(15 - i - 1 + 1, 8, !!b); else set(15 - i - 1, 8, !!b);
+      }
+      set(8, N - 8, true);   // the dark module
+    };
+    putFormat(0);
+    if (ver >= 7){ const v = bch(ver, 0x1F25, 12); for (let i = 0; i < 18; i++){ const b = !!((v >> i) & 1); set(Math.floor(i / 3), N - 11 + i % 3, b); set(N - 11 + i % 3, Math.floor(i / 3), b); } }
+    // data in the zig-zag, right to left, skipping the timing column
+    const dbits = []; cw.forEach(c => { for (let i = 7; i >= 0; i--) dbits.push((c >> i) & 1); });
+    let k = 0;
+    for (let x = N - 1; x > 0; x -= 2){
+      if (x === 6) x--;
+      const up = ((N - 1 - x) >> 1) % 2 === 0;
+      for (let j = 0; j < N; j++){ const y = up ? N - 1 - j : j; for (const xx of [x, x - 1]) if (!F[y][xx]){ M[y][xx] = k < dbits.length ? !!dbits[k] : false; k++; } }
+    }
+    const MASKS = [(x, y) => (x + y) % 2 === 0, (x, y) => y % 2 === 0, (x, y) => x % 3 === 0, (x, y) => (x + y) % 3 === 0, (x, y) => (Math.floor(y / 2) + Math.floor(x / 3)) % 2 === 0, (x, y) => (x * y) % 2 + (x * y) % 3 === 0, (x, y) => ((x * y) % 2 + (x * y) % 3) % 2 === 0, (x, y) => ((x + y) % 2 + (x * y) % 3) % 2 === 0];
+    const apply = m => { const out = M.map(r => r.slice()); for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) if (!F[y][x] && MASKS[m](x, y)) out[y][x] = !out[y][x]; return out; };
+    const penalty = G => {
+      let p = 0;
+      for (let pass = 0; pass < 2; pass++) for (let a = 0; a < N; a++){ let run = 1; for (let b = 1; b < N; b++){ const c = pass ? G[b][a] : G[a][b], d = pass ? G[b - 1][a] : G[a][b - 1]; if (c === d){ run++; if (b === N - 1 && run >= 5) p += run - 2; } else { if (run >= 5) p += run - 2; run = 1; } } }
+      for (let y = 0; y < N - 1; y++) for (let x = 0; x < N - 1; x++){ const c = G[y][x]; if (c === G[y][x + 1] && c === G[y + 1][x] && c === G[y + 1][x + 1]) p += 3; }
+      const pat = [1, 0, 1, 1, 1, 0, 1, 0, 0, 0, 0], tap = pat.slice().reverse();
+      for (let a = 0; a < N; a++) for (let b = 0; b <= N - 11; b++) for (const pp of [pat, tap]){ let r = true, c = true; for (let i = 0; i < 11; i++){ if (+G[a][b + i] !== pp[i]) r = false; if (+G[b + i][a] !== pp[i]) c = false; } if (r) p += 40; if (c) p += 40; }
+      let dark = 0; G.forEach(r => r.forEach(v => dark += v ? 1 : 0)); p += Math.floor(Math.abs(dark * 100 / (N * N) - 50) / 5) * 10;
+      return p;
+    };
+    let best = null;
+    for (let m = 0; m < 8; m++){ if (forceMask != null && m !== forceMask) continue; putFormat(m); const G = apply(m); const pen = penalty(G); if (!best || pen < best.pen) best = { pen, G, m }; }
+    return { size: N, version: ver, mask: best.m, mod: (x, y) => !!best.G[y][x] };
+  }
+  return { fft, hann, prefix, cum, gccPhat, aWeight, cWeight, interpLog, parseCal, kWeight, voiceAnalyze, filterDb, VOICE_DEFAULTS, voiceCfg, voiceEvents, stripFit, STRIP_DEFAULTS, spkFit, firFromDb, targetAt, graphicFit, qrCode };
 })();
 if (typeof module !== 'undefined') module.exports = DSP;
 </script>
@@ -1096,7 +1186,7 @@ const DEFAULTS = {
   genOn: false, genType: 'pink', genFreq: 1000, genLevel: -20,
   delayMs: 0,
   fftMode: 'mtw', avg: 8, smooth: 24, cohBlank: 0.5, cohView: 'lane', sideHidden: false, magRange: 20, magOffset: 0,
-  topView: 'rta', levMetric: 'lufs', levSpan: 1, levRange: 24, levRefWin: 10, levRef: {}, levSrc: 'meas', bandsSrc: 'meas', bandsWeight: 'Z', bandNoise: null, bandsFloor: -90, bandsCeil: -30, bandIgnore: [], bandIgnoreHz: null, bandPreset: 'iso31', bandCustom: '', bandTallySec: 10, bandGate: -60, thru: false, thruLevel: 0, refAux: false, monMode: 'off', monLevel: -20, voiceSrc: 'ref', voiceTau: 30, voiceGate: -50, voiceHpf: 3, voiceCfg: {}, trOn: false, trModel: 'tiny', trReady: '', strip: {}, dispView: 'voice', spk: null, spkOn: false, spkLift: 10, spkSmooth: 6, voiceMode: 'talk', mmTau: 10, mmTarget: 'flat', targets: [], gfitOn: false, gfitHold: false, gfitMode: 'cq', gfitBoost: false, gfitRange: 12, gfitAfter: true, gfitTarget: '', voicePanel: true, monOut: '', rtaBands: '3', rtaAvg: 'fast', rtaUnits: 'dbfs', rtaTop: 0, rtaSpan: 100, peakHold: true,
+  topView: 'rta', levMetric: 'lufs', levSpan: 1, levRange: 24, levRefWin: 10, levRef: {}, levSrc: 'meas', bandsSrc: 'meas', bandsWeight: 'Z', bandNoise: null, bandsFloor: -90, bandsCeil: -30, bandIgnore: [], bandIgnoreHz: null, bandPreset: 'iso31', bandCustom: '', bandTallySec: 10, bandGate: -60, thru: false, thruLevel: 0, refAux: false, monMode: 'off', monLevel: -20, voiceSrc: 'ref', voiceTau: 30, voiceGate: -50, voiceHpf: 3, voiceCfg: {}, trOn: false, trModel: 'tiny', trReady: '', strip: {}, dispView: 'voice', spk: null, spkOn: false, spkLift: 10, spkSmooth: 6, voiceMode: 'talk', mmTau: 10, mmTarget: 'flat', targets: [], gfitOn: false, gfitHold: false, gfitMode: 'cq', gfitBoost: false, gfitRange: 12, gfitAfter: true, gfitTarget: '', measSrc: 'local', relayUrl: '', rmBuffer: 200, delayLocal: 0, delayRemote: 0, voicePanel: true, monOut: '', rtaBands: '3', rtaAvg: 'fast', rtaUnits: 'dbfs', rtaTop: 0, rtaSpan: 100, peakHold: true,
   specFloor: -110, specCeil: -40,
   serial: '', calAngle: '0', applyCal: true, splOffset: null, weight: 'A', timeW: 'fast', calRef: 94,
   micModel: 'umik', calActive: null, layout: null,
@@ -1220,12 +1310,21 @@ class Cap extends AudioWorkletProcessor{
     const len=(x||y||z)?(x||y||z).length:128;
     for(let i=0;i<len;i++){
       this.a[this.n]=x?x[i]:0; this.b[this.n]=y?y[i]:0; this.c[this.n]=z?z[i]:0; this.n++;
-      if(this.n===this.B){this.port.postMessage({r:this.a,m:this.b,x:this.c},[this.a.buffer,this.b.buffer,this.c.buffer]);this.a=new Float32Array(this.B);this.b=new Float32Array(this.B);this.c=new Float32Array(this.B);this.n=0;}
+      if(this.n===this.B){this.port.postMessage({r:this.a,m:this.b,x:this.c,f:currentFrame+i+1},[this.a.buffer,this.b.buffer,this.c.buffer]);this.a=new Float32Array(this.B);this.b=new Float32Array(this.B);this.c=new Float32Array(this.B);this.n=0;}
     }
     return true;
   }
 }
 registerProcessor('ca-cap',Cap);
+class RmTx extends AudioWorkletProcessor{
+  constructor(){super();this.B=1024;this.n=0;this.k=0;this.a=new Float32Array(this.B);}
+  process(inputs){
+    const x=inputs[0]&&inputs[0][0]; if(!x) return true;
+    for(let i=0;i<x.length;i++){ this.a[this.n++]=x[i]; if(this.n===this.B){ this.port.postMessage({d:this.a,k:this.k},[this.a.buffer]); this.k+=this.B; this.a=new Float32Array(this.B); this.n=0; } }
+    return true;
+  }
+}
+registerProcessor('rm-tx',RmTx);
 class Gen extends AudioWorkletProcessor{
   constructor(){super();this.on=false;this.type='pink';this.amp=0.1;this.freq=1000;this.ph=0;this.cur=0;this.b=new Float64Array(7);this.port.onmessage=e=>Object.assign(this,e.data);}
   process(_,out){
@@ -1408,7 +1507,9 @@ async function toggleRun(){ S.running ? await stop() : await start(); }
 document.addEventListener('pointerdown', () => { if (S.ctx && S.ctx.state === 'suspended') S.ctx.resume(); });
 
 function onAudio(e){
-  const { r, m, x } = e.data, n = r.length, inv = P.polarity ? -1 : 1;
+  let { r, m, x } = e.data; const n = r.length, inv = P.polarity ? -1 : 1;
+  if (e.data.f != null) S.frame0 = e.data.f - (ring.w + n);   // context frame where the capture started: maps the audio clock to ring positions
+  if (P.measSrc === 'remote') m = rmFill(n);   // the phone's mic, lined up with this computer's clock
   let pr = 0, pm = 0, px = 0;
   for (let i = 0; i < n; i++){
     const j = (ring.w + i) & RBM, a = r[i], b = m[i] * inv, c = x ? x[i] : 0;
@@ -3029,6 +3130,243 @@ function readCalFile(file){
   r.readAsText(file);
 }
 
+/* ---------------- Remote mic (experimental): a phone on the same network as a second measurement mic ----------------
+   The phone opens clever with ?mic=<room> (from the QR code) and streams its mic, uncompressed, over a WebRTC data
+   channel; the relay (relay/clever-relay.js) only introduces the two, and carries the audio itself if the network
+   won't let them connect directly. Every block carries the phone's sample count. Here, each arrival gives
+   "local sample now − phone sample": its minimum over a few seconds is the fastest the network ever delivered, and
+   its slow change is the drift between the two sample clocks. Playing the phone's samples at that minimum plus a
+   fixed buffer makes the remote mic's delay steady even while Wi-Fi latency jumps about, so it can replace the
+   local mic everywhere: RTA, transfer function (find the delay again), SPL, Levels, Bands. */
+const RM_HDR = 16;   // 'C', kind (1 = float32, 2 = int16), n (u16), phone sample index (f64), sequence (u32)
+function rmPack(d, k, seq, int16){
+  const n = d.length, buf = new ArrayBuffer(RM_HDR + n * (int16 ? 2 : 4)), v = new DataView(buf);
+  v.setUint8(0, 67); v.setUint8(1, int16 ? 2 : 1); v.setUint16(2, n, true); v.setFloat64(4, k, true); v.setUint32(12, seq, true);
+  if (int16){ const o = new Int16Array(buf, RM_HDR); for (let i = 0; i < n; i++) o[i] = Math.max(-32768, Math.min(32767, Math.round(d[i] * 32767))); }
+  else new Float32Array(buf, RM_HDR).set(d);
+  return buf;
+}
+function rmUnpack(buf){
+  if (!(buf instanceof ArrayBuffer) || buf.byteLength < RM_HDR) return null;
+  const v = new DataView(buf); if (v.getUint8(0) !== 67) return null;
+  const kind = v.getUint8(1), n = v.getUint16(2, true), k = v.getFloat64(4, true), seq = v.getUint32(12, true);
+  let d; if (kind === 2){ const a = new Int16Array(buf.slice(RM_HDR, RM_HDR + 2 * n)); d = Float32Array.from(a, x => x / 32767); } else d = new Float32Array(buf.slice(RM_HDR, RM_HDR + 4 * n));
+  return { k, seq, d };
+}
+const RELAY_PARAM = new URLSearchParams(location.search).get('relay');
+const relayUrl = () => (RELAY_PARAM || P.relayUrl || '').trim() || `wss://${location.hostname}:8443/clever-relay`;
+const RM_RB = 1 << 18, RM_RBM = RM_RB - 1;
+const RM = { code: null, ws: null, pc: null, dc: null, via: '', state: 'off', meta: null, cal: null, ring: new Float32Array(RM_RB), hi: 0, lastSeq: -1, lost: 0, under: 0, recv: 0, minWin: null, winT: 0, hist: [], fit: null, app: null, timer: 0, pk: 0, pkT: 0 };
+function rmLocalNow(){ return S.ctx && S.frame0 != null ? S.ctx.currentTime * S.fs - S.frame0 : null; }
+function rmReset(){ RM.ring.fill(0); RM.hi = 0; RM.lastSeq = -1; RM.lost = 0; RM.under = 0; RM.recv = 0; RM.minWin = null; RM.winT = 0; RM.hist = []; RM.fit = null; RM.app = null; }
+function rmPair(){
+  rmClose();
+  const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let c = ''; const r = crypto.getRandomValues(new Uint8Array(6)); for (const b of r) c += A[b % A.length];
+  RM.code = c; RM.state = 'waiting'; rmReset();
+  rmConnect('foh'); rmUI();
+}
+function rmConnect(role){
+  let ws; try { ws = new WebSocket(relayUrl() + (relayUrl().includes('?') ? '&' : '?') + `room=${RM.code}&role=${role}`); } catch (e) { RM.state = 'error'; RM.err = 'Bad relay address.'; rmUI(); return; }
+  ws.binaryType = 'arraybuffer'; RM.ws = ws;
+  ws.onopen = () => { RM.err = ''; rmUI(); };
+  ws.onerror = () => { RM.err = `Can't reach the relay at ${relayUrl()}.`; rmUI(); };
+  ws.onclose = () => { if (RM.ws === ws){ RM.ws = null; if (RM.state !== 'off'){ RM.err = RM.err || 'The relay connection closed.'; setTimeout(() => { if (RM.code && !RM.ws && RM.state !== 'off') rmConnect(role); }, 3000); } rmUI(); } };
+  ws.onmessage = e => role === 'foh' ? rmFohMsg(e.data) : rmMicMsg(e.data);
+}
+function rmSend(obj){ if (RM.ws && RM.ws.readyState === 1) RM.ws.send(JSON.stringify(obj)); }
+function rmClose(quiet){
+  try { RM.dc && RM.dc.close(); } catch {} try { RM.pc && RM.pc.close(); } catch {} try { RM.ws && RM.ws.close(); } catch {}
+  RM.dc = RM.pc = RM.ws = null; RM.via = ''; RM.state = 'off'; RM.code = null; RM.meta = null; clearTimeout(RM.timer);
+  if (P.measSrc === 'remote' && !quiet) setMeasSrc('local');
+  rmUI();
+}
+// --- the computer at FOH ---
+function rmFohMsg(data){
+  if (typeof data !== 'string'){ rmIn(data); return; }
+  let m; try { m = JSON.parse(data); } catch { return; }
+  if (m.type === 'welcome'){ if (m.peers.includes('mic')) rmOffer(); }
+  else if (m.type === 'peer-joined' && m.role === 'mic') rmOffer();
+  else if (m.type === 'peer-left' && m.role === 'mic'){ RM.state = 'waiting'; RM.via = ''; try { RM.pc && RM.pc.close(); } catch {} RM.pc = RM.dc = null; toast('The remote mic disconnected.'); rmUI(); }
+  else if (m.type === 'answer' && RM.pc) RM.pc.setRemoteDescription(m.sdp).catch(() => {});
+  else if (m.type === 'ice' && RM.pc && m.c) RM.pc.addIceCandidate(m.c).catch(() => {});
+  else if (m.type === 'hello') rmHello(m);
+}
+async function rmOffer(){
+  try { RM.pc && RM.pc.close(); } catch {}
+  rmReset(); RM.state = 'connecting'; RM.via = ''; rmUI();
+  const pc = RM.pc = new RTCPeerConnection({ iceServers: [] });   // same network only: no outside servers
+  const dc = RM.dc = pc.createDataChannel('audio', { ordered: true });
+  dc.binaryType = 'arraybuffer';
+  dc.onopen = () => { RM.via = 'direct'; RM.state = 'connected'; clearTimeout(RM.timer); rmSend({ type: 'use', via: 'direct' }); rmUI(); };
+  dc.onmessage = e => typeof e.data === 'string' ? rmFohMsg(e.data) : rmIn(e.data);
+  pc.onicecandidate = e => { if (e.candidate) rmSend({ type: 'ice', c: e.candidate }); };
+  await pc.setLocalDescription(await pc.createOffer());
+  rmSend({ type: 'offer', sdp: pc.localDescription });
+  // if the two can't reach each other directly (client isolation on venue Wi-Fi), send the audio through the relay
+  clearTimeout(RM.timer);
+  RM.timer = setTimeout(() => { if (RM.via !== 'direct'){ RM.via = 'relay'; RM.state = 'connected'; rmSend({ type: 'use', via: 'relay' }); rmUI(); toast('No direct connection to the phone; using the relay for its audio.', 4000); } }, 8000);
+}
+function rmHello(m){
+  RM.meta = m;
+  RM.cal = m.cal && m.cal.f && m.cal.f.length ? { id: 'remote', name: m.cal.name || 'phone', model: 'remote', f: m.cal.f, db: m.cal.db, sens: m.cal.sens, splOffset: m.cal.splOffset } : null;
+  if (P.measSrc === 'remote') setMeasSrc('remote', true);
+  toast(`Remote mic connected: ${m.label || 'phone'}${RM.cal ? ', calibrated' : ', no calibration'}.`, 4000); rmUI();
+}
+// a block from the phone: store it by its sample index, and track the arrival offset
+function rmIn(buf){
+  const p = rmUnpack(buf); if (!p) return;
+  const fsR = RM.meta ? RM.meta.fs : 48000, b0 = (S.fs || 48000) / fsR;
+  if (RM.lastSeq >= 0 && p.seq > RM.lastSeq + 1) RM.lost += p.seq - RM.lastSeq - 1;
+  RM.lastSeq = Math.max(RM.lastSeq, p.seq); RM.recv++;
+  for (let i = 0; i < p.d.length; i++) RM.ring[(p.k + i) & RM_RBM] = p.d[i];
+  const end = p.k + p.d.length; if (end > RM.hi) RM.hi = end;
+  let pk = 0; for (const v of p.d){ const a = v < 0 ? -v : v; if (a > pk) pk = a; } RM.pk = Math.max(RM.pk * 0.9, pk);
+  const L = rmLocalNow(); if (L == null) return;
+  const o = L - b0 * end;   // local sample − phone sample, at arrival: smallest when the network was fastest
+  RM.minWin = RM.minWin == null ? o : Math.min(RM.minWin, o);
+  const now = performance.now();
+  if (now - RM.winT > 2000){
+    if (RM.winT) RM.hist.push([end, RM.minWin]);
+    if (RM.hist.length > 150) RM.hist.shift();
+    RM.winT = now; RM.minWin = null;
+    // offset(phone sample) = c + s·sample, fitted to the lower envelope of the last minute: s is the clock drift
+    const H = RM.hist; if (H.length){
+      let c, s = 0;
+      if (H.length >= 4){ const n = H.length, mx = H.reduce((t, h) => t + h[0], 0) / n, my = H.reduce((t, h) => t + h[1], 0) / n; let sxy = 0, sxx = 0; for (const [x, y] of H){ sxy += (x - mx) * (y - my); sxx += (x - mx) * (x - mx); } s = sxx > 0 ? sxy / sxx : 0; c = my - s * mx;
+        // the envelope: lift the line onto the lowest points rather than their average
+        let lo = Infinity; for (const [x, y] of H) lo = Math.min(lo, y - (c + s * x)); c += lo; }
+      else { c = Math.min(...H.map(h => h[1])); }
+      RM.fit = { c, s, b0 };
+    }
+  }
+}
+// samples for this computer's next block, from the phone's ring, at the fitted offset plus the buffer
+function rmFill(n){
+  const out = new Float32Array(n), F = RM.fit;
+  if (!F || RM.state !== 'connected'){ return out; }
+  const D = (+P.rmBuffer || 200) / 1000 * S.fs, L0 = ring.w;
+  // applied offset follows the fit slowly (no clicks, no phase wobble in a transfer function); a big change jumps
+  const curR = RM.hi, tgtC = F.c, tgtS = F.s;
+  if (!RM.app || Math.abs((RM.app.c + RM.app.s * curR) - (tgtC + tgtS * curR)) > 0.02 * S.fs) RM.app = { c: tgtC, s: tgtS };
+  else { const d = (tgtC + tgtS * curR) - (RM.app.c + RM.app.s * curR), step = Math.max(-0.05, Math.min(0.05, d)); RM.app.c += step; RM.app.s += (tgtS - RM.app.s) * 0.01; }
+  const A = RM.app, b = F.b0 + A.s;
+  for (let i = 0; i < n; i++){
+    const R = (L0 + i - A.c - D) / b, k = Math.floor(R), t = R - k;
+    if (k + 2 >= RM.hi || k - 1 < RM.hi - RM_RB + 4096){ RM.under++; continue; }
+    const y0 = RM.ring[(k - 1) & RM_RBM], y1 = RM.ring[k & RM_RBM], y2 = RM.ring[(k + 1) & RM_RBM], y3 = RM.ring[(k + 2) & RM_RBM];
+    // 4-point Hermite interpolation
+    const c1 = 0.5 * (y2 - y0), c2 = y0 - 2.5 * y1 + 2 * y2 - 0.5 * y3, c3 = 0.5 * (y3 - y0) + 1.5 * (y1 - y2);
+    out[i] = ((c3 * t + c2) * t + c1) * t + y1;
+  }
+  return out;
+}
+function setMeasSrc(v, quiet){
+  if (v === 'remote' && !(RM.state === 'connected' && RM.meta)){ toast('Pair a phone and let it connect first.'); v = 'local'; }
+  const was = P.measSrc;
+  if (was !== v){ if (was === 'remote') P.delayRemote = P.delayMs; else P.delayLocal = P.delayMs; P.delayMs = v === 'remote' ? +P.delayRemote || 0 : +P.delayLocal || 0; }
+  P.measSrc = v;
+  CAL = v === 'remote' ? RM.cal : (CALS.find(c => c.id === P.calActive) || null);
+  if (typeof onCalChanged === 'function') onCalChanged();
+  if (S.accs && S.accs.length) resetAverages();
+  changed(); if (!quiet && was !== v) toast(v === 'remote' ? 'Measuring with the remote mic. Find the delay again before reading phase.' : 'Measuring with this computer\'s mic.');
+}
+function rmStatus(){
+  if (RM.state === 'off') return 'Not paired.';
+  if (RM.err) return RM.err;
+  if (RM.state === 'waiting') return 'Waiting for the phone to scan the code…';
+  if (RM.state === 'connecting') return 'Phone found, connecting…';
+  const F = RM.fit, ppm = F ? F.s / F.b0 * 1e6 : 0;
+  return `Connected ${RM.via === 'direct' ? 'directly (WebRTC)' : 'through the relay'}${RM.meta ? ' · ' + (RM.meta.label || 'phone') + ' · ' + (RM.cal ? RM.cal.name : 'no calibration') : ''}${F ? ` · drift ${Math.round(ppm) > 0 ? '+' : ''}${Math.round(ppm) || 0} ppm` : ' · measuring timing…'}${RM.lost ? ` · ${RM.lost} lost` : ''}`;
+}
+function rmUI(){
+  const st = $('#rmStatus'); if (!st) return;
+  st.textContent = rmStatus();
+  $('#rmPair').textContent = RM.state === 'off' ? 'Pair a phone…' : 'New code';
+  $('#rmClose').hidden = RM.state === 'off';
+  const box = $('#rmQR'); box.hidden = RM.state === 'off' || RM.state === 'connected';
+  if (!box.hidden && RM.code && box.dataset.code !== RM.code){
+    box.dataset.code = RM.code;
+    const url = location.origin + location.pathname + '?mic=' + RM.code + (RELAY_PARAM || P.relayUrl ? '&relay=' + encodeURIComponent(relayUrl()) : '');
+    const q = DSP.qrCode(url), cv = $('#rmQRc'), sc = 5, pad = 4; cv.width = cv.height = (q.size + pad * 2) * sc;
+    const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height); g.fillStyle = '#000';
+    for (let y = 0; y < q.size; y++) for (let x = 0; x < q.size; x++) if (q.mod(x, y)) g.fillRect((x + pad) * sc, (y + pad) * sc, sc, sc);
+    $('#rmCode').textContent = RM.code; $('#rmUrl').textContent = url;
+  }
+  const opt = $('#measSrc'); if (opt) opt.value = P.measSrc;
+  syncMeasLabel();
+}
+function syncMeasLabel(){ const lab = $('#mtMeas span'); if (lab) lab.textContent = P.measSrc === 'remote' ? 'PHONE' : 'MEAS'; }
+setInterval(() => { if (RM.state !== 'off') rmUI(); }, 1000);
+
+// --- the phone ---
+const MICPAGE = new URLSearchParams(location.search).get('mic');
+function rmMicMsg(data){
+  if (typeof data !== 'string') return;
+  let m; try { m = JSON.parse(data); } catch { return; }
+  if (m.type === 'welcome' || (m.type === 'peer-joined' && m.role === 'foh')) rmSend({ type: 'ready' });
+  else if (m.type === 'offer') rmAnswer(m.sdp);
+  else if (m.type === 'ice' && RM.pc && m.c) RM.pc.addIceCandidate(m.c).catch(() => {});
+  else if (m.type === 'use'){ RM.via = m.via; micUI(); rmHelloSend(); }
+  else if (m.type === 'peer-left' && m.role === 'foh'){ RM.via = ''; micUI(); }
+}
+async function rmAnswer(sdp){
+  try { RM.pc && RM.pc.close(); } catch {}
+  const pc = RM.pc = new RTCPeerConnection({ iceServers: [] });
+  pc.ondatachannel = e => { const dc = RM.dc = e.channel; dc.binaryType = 'arraybuffer'; dc.onopen = () => { RM.via = 'direct'; micUI(); rmHelloSend(); }; dc.onclose = () => { if (RM.via === 'direct') RM.via = ''; micUI(); }; };
+  pc.onicecandidate = e => { if (e.candidate) rmSend({ type: 'ice', c: e.candidate }); };
+  try { await pc.setRemoteDescription(sdp); await pc.setLocalDescription(await pc.createAnswer()); }
+  catch { return; }   // no direct link: clever falls back to the relay after 8 s
+  rmSend({ type: 'answer', sdp: pc.localDescription });
+}
+function rmHelloSend(){
+  const c = CALS.find(x => x.id === +MIC.cal) || null;
+  const hello = { type: 'hello', fs: MIC.ctx ? MIC.ctx.sampleRate : 48000, label: MIC.label || 'phone', cal: c ? { name: calLabel(c), f: c.f, db: c.db, sens: c.sens, splOffset: c.splOffset } : null };
+  if (RM.via === 'direct' && RM.dc && RM.dc.readyState === 'open') RM.dc.send(JSON.stringify(hello)); else rmSend(hello);
+}
+const MIC = { ctx: null, stream: null, seq: 0, sent: 0, dropped: 0, label: '', cal: '' };
+async function micStart(){
+  try {
+    MIC.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 } });
+    MIC.label = MIC.stream.getAudioTracks()[0].label || 'phone';
+    try { MIC.ctx = new AudioContext({ sampleRate: 48000 }); } catch { MIC.ctx = new AudioContext(); }
+    await MIC.ctx.audioWorklet.addModule(workletURL);
+    const src = MIC.ctx.createMediaStreamSource(MIC.stream), tx = new AudioWorkletNode(MIC.ctx, 'rm-tx', { numberOfInputs: 1, numberOfOutputs: 0, channelCount: 1, channelCountMode: 'explicit' });
+    src.connect(tx);
+    const autoCal = CALS.find(c => /imm-?6|dayton/i.test(MIC.label) ? c.model === 'dayton' : /umik/i.test(MIC.label) ? c.model === 'umik' : false);
+    if (!MIC.cal && autoCal) MIC.cal = String(autoCal.id);
+    tx.port.onmessage = e => {
+      const { d, k } = e.data; let pk = 0; for (const v of d){ const a = v < 0 ? -v : v; if (a > pk) pk = a; } MIC.pk = Math.max((MIC.pk || 0) * 0.85, pk);
+      if (RM.via === 'direct' && RM.dc && RM.dc.readyState === 'open'){ if (RM.dc.bufferedAmount > 1 << 20){ MIC.dropped++; return; } RM.dc.send(rmPack(d, k, MIC.seq++, false)); MIC.sent++; }
+      else if (RM.via === 'relay' && RM.ws && RM.ws.readyState === 1){ if (RM.ws.bufferedAmount > 1 << 20){ MIC.dropped++; return; } RM.ws.send(rmPack(d, k, MIC.seq++, true)); MIC.sent++; }
+    };
+    keepAwake(true);
+    RM.code = MICPAGE; RM.state = 'mic'; rmConnect('mic');
+  } catch (e) { toast('Could not start the mic: ' + e.message, 5000); }
+  micUI();
+}
+function micUI(){
+  const el = document.getElementById('micPage'); if (!el) return;
+  el.querySelector('#micStatus').textContent = !MIC.ctx ? 'Tap Start, and allow the microphone.' : !RM.ws || RM.ws.readyState !== 1 ? 'Connecting to the relay…' : RM.via === 'direct' ? 'Sending to clever directly.' : RM.via === 'relay' ? 'Sending to clever through the relay.' : 'Waiting for clever…';
+  el.querySelector('#micStart').hidden = !!MIC.ctx;
+  const sel = el.querySelector('#micCal'); if (sel && !sel.options.length){ sel.add(new Option('No calibration', '')); for (const c of CALS) sel.add(new Option(calLabel(c), String(c.id))); }
+  if (sel) sel.value = MIC.cal || '';
+}
+function micPage(){
+  document.title = 'clever remote mic';
+  const d = document.createElement('div'); d.id = 'micPage';
+  d.innerHTML = `<div class="wm" style="font-size:34px">cle<em>v</em>er</div><div class="micsub">remote mic · room ${MICPAGE}</div>
+    <div class="micmeter"><b id="micBar"></b></div><div id="micDb" class="micdb">–∞</div>
+    <p id="micStatus" class="micst"></p>
+    <button class="btn primary" id="micStart" style="font-size:18px;padding:12px 26px">Start</button>
+    <div class="row" style="width:min(340px,90vw)"><label for="micCal">Calibration</label><select id="micCal"></select></div>
+    <p class="note" style="max-width:340px">Put the phone where you want to measure, mic pointing at the speakers, and leave this page open with the screen on. Load the phone mic's calibration file in clever on this phone first if you have one. For the most reliable link, join the computer to this phone's hotspot.</p>`;
+  document.body.append(d);
+  d.querySelector('#micStart').onclick = micStart;
+  d.querySelector('#micCal').onchange = e => { MIC.cal = e.target.value; if (RM.via) rmHelloSend(); };
+  setInterval(() => { const db = 20 * Math.log10((MIC.pk || 0) + 1e-9); d.querySelector('#micBar').style.width = Math.max(0, Math.min(100, (db + 60) / 60 * 100)) + '%'; d.querySelector('#micDb').textContent = MIC.ctx ? (db < -99 ? '–∞' : db.toFixed(1) + ' dBFS') : '–∞'; micUI(); }, 200);
+  micUI();
+}
+
 /* ---------------- Test speaker correction ----------------
    Measure: 2 s of room noise with the generator off, then pink noise for 12 s (after 1.5 s for Bluetooth latency
    and the speaker's own processing to settle). Per 1/12-octave band, response = mic level (calibrated) − generator
@@ -3273,6 +3611,7 @@ const ACT = {
   // generator
   genDn: { name: 'Generator level −2', group: 'Generator', k: () => onKey('LEVEL', '−2', P.genLevel + ' dBFS'), press: () => { P.genLevel = Math.max(-60, P.genLevel - 2); changed(); sendGen(); } },
   genUp: { name: 'Generator level +2', group: 'Generator', k: () => onKey('LEVEL', '+2', P.genLevel + ' dBFS'), press: () => { P.genLevel = Math.min(0, P.genLevel + 2); changed(); sendGen(); } },
+  measSrc: { name: 'Measure with this mic / the remote phone', group: 'Meters', k: () => onKey('MEAS MIC', P.measSrc === 'remote' ? 'PHONE' : 'LOCAL', RM.state === 'connected' ? (RM.via === 'direct' ? 'phone direct' : 'phone relay') : 'no phone', P.measSrc === 'remote'), press: () => setMeasSrc(P.measSrc === 'remote' ? 'local' : 'remote') },
   spkEq: { name: 'Test speaker correction on/off', group: 'Generator', k: () => onKey('SPEAKER EQ', !P.spk ? '—' : P.spkOn ? 'ON' : 'OFF', P.spk ? 'test speaker' : 'not measured', spkActive()), press: () => { if (!P.spk){ toast('Measure the test speaker first.'); return; } P.spkOn = !P.spkOn; spkApply(); changed(); } },
   toneDn: { name: 'Tone frequency −1/3 oct', group: 'Generator', k: () => onKey('TONE', '−⅓', fmtF(+P.genFreq)), press: () => { P.genFreq = Math.max(20, Math.round(P.genFreq / Math.pow(2, 1 / 3))); changed(); sendGen(); } },
   toneUp: { name: 'Tone frequency +1/3 oct', group: 'Generator', k: () => onKey('TONE', '+⅓', fmtF(+P.genFreq)), press: () => { P.genFreq = Math.min(20000, Math.round(P.genFreq * Math.pow(2, 1 / 3))); changed(); sendGen(); } },
@@ -3733,6 +4072,7 @@ function syncUI(){
   $('#voiceSrcBtn').textContent = ({ aux: 'Solo', ref: 'Ref in', meas: 'Mic in' })[voiceSrc()] + ' ▸'; $('#voiceSrcBtn').hidden = P.voiceMode === 'pink';
   $('#voiceModeBtn').textContent = (P.voiceMode === 'pink' ? 'Test speaker' : 'Talker') + ' ▸'; $('#voiceModeBtn').classList.toggle('on', P.voiceMode === 'pink'); $('#voiceResetBtn').textContent = P.voiceMode === 'pink' ? 'Restart' : 'New talker';
   $('#mtAux').hidden = !S.auxOn; $('#refAuxRow').hidden = P.refDev === 'gen';
+  set('relayUrl', P.relayUrl); $('#relayUrl').placeholder = `wss://${location.hostname}:8443/clever-relay`; set('rmBuffer', P.rmBuffer); syncMeasLabel();
   tgOptions($('#mmTarget'), false); ['voiceSrc', 'voiceTau', 'voiceGate', 'voiceHpf', 'trModel', 'mmTarget', 'mmTau'].forEach(k => set(k, P[k]));
   { const sc = stripCfg(); document.querySelectorAll('[data-st]').forEach(el => { if (document.activeElement !== el) el.value = String(sc[el.dataset.st]); }); }
   $('#trBtn').textContent = P.trOn ? (TR.state === 'loading' ? 'Loading… (press to cancel)' : 'Stop transcript') : P.trReady === P.trModel ? 'Start transcript' : 'Download and start transcript…';
@@ -3858,6 +4198,13 @@ function tgBuild(){
 document.querySelector('#tgEd').closest('details').addEventListener('toggle', e => { if (e.target.open) tgBuild(); });
 bind('mmTarget', 'mmTarget', { after: () => { S.tgEdit = null; MM.strip = null; if (MM.n) mmCompute(); if ($('#tgEd').closest('details').open) tgBuild(); } });
 bind('mmTau', 'mmTau', { num: true });
+$('#rmPair').onclick = rmPair;
+$('#rmClose').onclick = () => rmClose();
+$('#measSrc').onchange = e => setMeasSrc(e.target.value);
+bind('relayUrl', 'relayUrl');
+bind('rmBuffer', 'rmBuffer', { num: true, after: () => { RM.app = null; } });
+if (P.measSrc === 'remote'){ P.measSrc = 'local'; P.delayMs = +P.delayLocal || P.delayMs; save(); }   // a remote mic doesn't survive a reload
+if (MICPAGE) micPage();
 document.querySelectorAll('[data-st]').forEach(el => el.addEventListener('change', () => {
   const k = el.dataset.st, v = el.tagName === 'SELECT' && k !== 'n' ? el.value : parseFloat(el.value);
   if (typeof v === 'number' && !isFinite(v)){ syncUI(); return; }

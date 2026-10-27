@@ -493,6 +493,15 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
         <li><span>In <span class="ui">Bands</span>, choose the layout that matches the group's graphic and press <span class="ui">Fit graphic</span>. The faders show where to set it, worst peaks first, allowing for how its bands overlap; the dashed line on the magnitude plot is the expected result. Under <span class="ui">Bands › Graphic fit</span>, set constant or proportional Q, cut only or boosts, the fader range, and whether the reference is taken after the graphic (absolute settings, the suggestion stays put) or before it (changes; press <span class="ui">Hold</span> while you set them). A target curve (say a gentle house curve) can be used instead of flat.</span></li>
         <li><span><b>Then feedback.</b> Bring the mics up to working level and ring out as usual with <span class="ui">Bands</span>. With each mic and the group already corrected, there should be little left.</span></li>
       </ol>
+      <h3>Measure from a second position with a phone (experimental)</h3>
+      <p>A phone running clever can be a second measurement mic, say on the balcony, while the computer stays at FOH. The phone sends its mic over the network and clever lines it up in time, so you can switch the RTA, Levels, Bands and the transfer function between the two mics.</p>
+      <ol class="steps">
+        <li><span><b>Network.</b> The easiest link is the phone's own hotspot: join the computer to it. Venue Wi-Fi often stops devices talking to each other; clever then sends the audio through the relay on the server instead, which works but needs internet on both.</span></li>
+        <li><span><b>Calibration.</b> If the phone has a measurement mic plugged in, load its calibration file in clever on the phone first (the usual Calibration section). The phone sends it with the audio.</span></li>
+        <li><span>On the computer, open <span class="ui">Remote mic</span> and press <span class="ui">Pair a phone</span>. Scan the code with the phone, press <span class="ui">Start</span> and allow the mic. Leave that page open with the screen on.</span></li>
+        <li><span>Once it says Connected, set <span class="ui">Measure with</span> to the phone. The meter label changes to PHONE. Press <span class="ui">Find delay</span> before reading phase: the phone's delay includes the network buffer, and each mic keeps its own delay setting when you switch.</span></li>
+      </ol>
+      <p>The status line shows how the two clocks drift (a few tens of ppm is normal; clever corrects it) and any lost blocks. If you hear or see dropouts, raise <span class="ui">Buffer</span>. Wait about a minute after connecting before trusting high-frequency phase: the timing settles as clever learns the drift.</p>
       <h3>Keep a set under a noise limit</h3>
       <ol class="steps">
         <li><span>Calibrate the mic with a calibrator (section 4), then place it where the limit applies, usually front of house.</span></li>
